@@ -30,6 +30,7 @@
 #include "constants/battle_palace.h"
 #include "constants/battle_move_effects.h"
 #include "constants/event_objects.h" // only for SHADOW_SIZE constants
+#include "genetics.h"
 
 // this file's functions
 static u8 GetBattlePalaceMoveGroup(enum BattlerId battler, enum Move move);
@@ -618,6 +619,28 @@ bool8 IsBattleSEPlaying(enum BattlerId battler)
 
     // Never reached
     return TRUE;
+}
+
+// realgen: the battler sprite is drawn at its genetic body size (GenomeSizeScale), anchored at its feet. Call right
+// after the battler sprite is created; sprite.c applies it whenever OAM is built, so move animations need no hooks.
+void SetBattlerGeneticSize(enum BattlerId battler)
+{
+    struct Pokemon *mon = GetBattlerMon(battler);
+    u8 spriteId = gBattlerSpriteIds[battler];
+    enum Species species;
+    struct Genome g;
+    s32 scale, bottom;
+    u8 matrixNum;
+
+    if (IsContest() || spriteId >= MAX_SPRITES || !GetMonData(mon, MON_DATA_SPECIES))
+        return;
+    species = GetMonData(mon, MON_DATA_SPECIES);
+    GetBoxMonGenome(&mon->box, &g);
+    scale = GenomeSizeScale(&g, GetMonData(mon, MON_DATA_PERSONALITY));
+    bottom = MON_PIC_HEIGHT / 2 - (IsOnPlayerSide(battler) ? gSpeciesInfo[species].backPicYOffset : gSpeciesInfo[species].frontPicYOffset);
+    matrixNum = (gSprites[spriteId].oam.affineMode & ST_OAM_AFFINE_ON_MASK) ? gSprites[spriteId].oam.matrixNum
+                                                                            : gBattleSpritesDataPtr->healthBoxesData[battler].matrixNum;
+    SetSpriteDisplayScale(spriteId, matrixNum, scale, -((scale - 0x100) * bottom) / 0x100);
 }
 
 void BattleLoadMonSpriteGfx(struct Pokemon *mon, enum BattlerId battler)

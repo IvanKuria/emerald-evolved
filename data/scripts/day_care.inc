@@ -261,7 +261,15 @@ Route117_PokemonDayCare_EventScript_UnusedRetrieveMon::
 EventScript_EggHatch::
 	lockall
 	msgbox Text_EggHatchHuh, MSGBOX_DEFAULT
+	specialvar VAR_RESULT, IsHatchingEggLethal
+	goto_if_eq VAR_RESULT, TRUE, EventScript_EggDidntHatch
 	special EggHatch
+	releaseall
+	end
+
+EventScript_EggDidntHatch::
+	special RemoveLethalEgg
+	msgbox Text_EggDidntHatch, MSGBOX_DEFAULT
 	releaseall
 	end
 
@@ -399,6 +407,11 @@ Route117_PokemonDayCare_Text_WhatWillYouBattleWith:
 
 Text_EggHatchHuh:
 	.string "Huh?$"
+
+Text_EggDidntHatch:
+	.string "…\p"
+	.string "The EGG didn't hatch…\p"
+	.string "It's no longer moving.$"
 
 Route117_PokemonDayCare_Text_YoullBeLeftWithJustOne:
 	.string "Huh?\n"

@@ -1,4 +1,5 @@
 #include "global.h"
+#include "genetics.h"
 #include "pokemon.h"
 #include "egg_hatch.h"
 #include "pokedex.h"
@@ -37,6 +38,7 @@
 #include "battle.h" // to get rid of later
 #include "constants/rgb.h"
 #include "party_menu.h"
+#include "constants/game_stat.h"
 
 #define GFXTAG_EGG       12345
 #define GFXTAG_EGG_SHARD 23456
@@ -346,6 +348,11 @@ static void AddHatchedMonToParty(u8 id)
     SetMonData(mon, MON_DATA_OT_ID, &otId);
     SetMonData(mon, MON_DATA_OT_NAME, gSaveBlock2Ptr->playerName);
     SetMonData(mon, MON_DATA_OT_GENDER, &gSaveBlock2Ptr->playerGender);
+    {
+        struct Genome g;
+        GetBoxMonGenome(&mon->box, &g);
+        SetBoxMonGenome(&mon->box, &g);   // re-applies genome shininess for the new OT
+    }
 
     MonRestorePP(mon);
     CalculateMonStats(mon);
@@ -354,6 +361,36 @@ static void AddHatchedMonToParty(u8 id)
 void ScriptHatchMon(void)
 {
     AddHatchedMonToParty(gSpecialVar_0x8004);
+}
+
+// realgen: an inviable egg (two copies of a lethal, or a failed hybrid) never hatches. Called by EventScript_EggHatch
+// with the hatching egg's party slot in VAR_0x8004.
+bool8 IsHatchingEggLethal(void)
+{
+    struct Genome genome;
+    struct Pokemon *mon;
+
+    if (gSpecialVar_0x8004 >= PARTY_SIZE)
+        return FALSE;
+    mon = &gPlayerParty[gSpecialVar_0x8004];
+    if (!GetMonData(mon, MON_DATA_IS_EGG) || GetMonData(mon, MON_DATA_SANITY_IS_BAD_EGG))
+        return FALSE;
+    GetBoxMonGenome(&mon->box, &genome);
+    return GenomeIsLethal(&genome);
+}
+
+void RemoveLethalEgg(void)
+{
+    u32 hatchedEggs;
+
+    if (gSpecialVar_0x8004 >= PARTY_SIZE || !GetMonData(&gPlayerParty[gSpecialVar_0x8004], MON_DATA_IS_EGG))
+        return;
+    ZeroMonData(&gPlayerParty[gSpecialVar_0x8004]);
+    CompactPartySlots();
+    CalculatePlayerPartyCount();
+    hatchedEggs = GetGameStat(GAME_STAT_HATCHED_EGGS);   // the step handler already counted it as hatched
+    if (hatchedEggs != 0)
+        SetGameStat(GAME_STAT_HATCHED_EGGS, hatchedEggs - 1);
 }
 
 static u8 EggHatchCreateMonSprite(u8 useAlt, u8 state, u8 partyId, enum Species *speciesLoc)
@@ -571,6 +608,15 @@ static void Task_EggHatchPlayBGM(u8 taskId)
     }
     gTasks[taskId].tTimer++;
 }
+
+#if EVO_TEST
+u8 EvoTest_EggHatchState(void)
+{
+    if (gMain.callback2 != CB2_EggHatch || sEggHatchData == NULL)
+        return 0xFF;
+    return sEggHatchData->state;
+}
+#endif
 
 static void CB2_EggHatch(void)
 {

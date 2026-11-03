@@ -1,4 +1,6 @@
 #include "global.h"
+#include "genetics.h"
+#include "genetics_palette.h"
 #include "malloc.h"
 #include "apprentice.h"
 #include "battle.h"
@@ -913,6 +915,7 @@ void SetBoxMonIVs(struct BoxPokemon *mon, u8 fixedIV)
         return;
     }
 
+    return; // realgen: random IVs are the genome's IV loci (set in CreateBoxMon)
     u32 iv;
     u32 ivRandom = Random32();
     enum Species species = GetBoxMonData(mon, MON_DATA_SPECIES);
@@ -997,7 +1000,14 @@ void CreateBoxMon(struct BoxPokemon *boxMon, enum Species species, u8 level, u32
     checksum = CalculateBoxMonChecksum(boxMon);
     SetBoxMonData(boxMon, MON_DATA_CHECKSUM, &checksum);
     EncryptBoxMon(boxMon);
-    SetBoxMonData(boxMon, MON_DATA_IS_SHINY, &isShiny);
+    {
+        struct Genome genome;
+        GenerateWildGenome(&genome);
+        if (trainerId.method == OT_ID_PLAYER_ID && !FlagGet(P_FLAG_FORCE_SHINY) && !FlagGet(P_FLAG_FORCE_NO_SHINY))
+            isShiny = GenomeIsShiny(&genome) || isShiny; // genome shiny (wild 1/8192) or a shiny-charm/chain reroll
+        MatchGenomeShininess(&genome, isShiny);
+        SetBoxMonGenome(boxMon, &genome);   // also sets IS_SHINY from the genome
+    }
     StringCopy(speciesName, GetSpeciesName(species));
     SetBoxMonData(boxMon, MON_DATA_NICKNAME, speciesName);
     SetBoxMonData(boxMon, MON_DATA_LANGUAGE, &gGameLanguage);
@@ -2029,6 +2039,76 @@ static ALWAYS_INLINE bool32 IsEggOrBadEgg(struct BoxPokemon *boxMon)
  * safety we have a GetBoxMonData macro (in include/pokemon.h) which
  * dispatches to either GetBoxMonData2 or GetBoxMonData3 based on the
  * number of arguments. */
+
+// ---- realgen genome storage (FEASIBILITY.md). 77 bits, lowest first:
+//  0-29 sub3 IV fields | 30-35 sub0 unused_02 | 36-38 sub0 unused_04 | 39-40 sub0 unused_0A | 41-45 sub0 teraType
+//  46-50 sub1 unused_04 | 51-53 sub1 unused_06 | 54-59 sub1 hyperTrained x6 | 60 sub3 unused_0B | 61 sub3 isShadow
+//  62-68 sub3 marine..world ribbons | 69-72 sub3 dynamaxLevel | 73 sub3 gigantamaxFactor | 74 unused_13 | 75 unused_1E
+//  76 blockBoxRS. Callers must have the BoxPokemon decrypted.
+static void PutG(u32 *p, u32 *pos, u32 n, u32 v) { for (u32 i = 0; i < n; i++, (*pos)++) if ((v >> i) & 1) p[*pos / 32] |= 1u << (*pos % 32); }
+static u32 TakeG(const u32 *p, u32 *pos, u32 n) { u32 v = 0; for (u32 i = 0; i < n; i++, (*pos)++) v |= ((p[*pos / 32] >> (*pos % 32)) & 1) << i; return v; }
+static void ReadGenomeBits(struct BoxPokemon *b, u32 *p)
+{
+    struct PokemonSubstruct0 *s0 = GetSubstruct0(b); struct PokemonSubstruct1 *s1 = GetSubstruct1(b); struct PokemonSubstruct3 *s3 = GetSubstruct3(b);
+    u32 pos = 0; p[0] = p[1] = p[2] = 0;
+    PutG(p,&pos,5,s3->hpIV); PutG(p,&pos,5,s3->attackIV); PutG(p,&pos,5,s3->defenseIV); PutG(p,&pos,5,s3->speedIV); PutG(p,&pos,5,s3->spAttackIV); PutG(p,&pos,5,s3->spDefenseIV);
+    PutG(p,&pos,6,s0->unused_02); PutG(p,&pos,3,s0->unused_04); PutG(p,&pos,2,s0->unused_0A); PutG(p,&pos,5,s0->teraType);
+    PutG(p,&pos,5,s1->unused_04); PutG(p,&pos,3,s1->unused_06);
+    PutG(p,&pos,1,s1->hyperTrainedHP); PutG(p,&pos,1,s1->hyperTrainedAttack); PutG(p,&pos,1,s1->hyperTrainedDefense); PutG(p,&pos,1,s1->hyperTrainedSpeed); PutG(p,&pos,1,s1->hyperTrainedSpAttack); PutG(p,&pos,1,s1->hyperTrainedSpDefense);
+    PutG(p,&pos,1,s3->unused_0B); PutG(p,&pos,1,s3->isShadow);
+    PutG(p,&pos,1,s3->marineRibbon); PutG(p,&pos,1,s3->landRibbon); PutG(p,&pos,1,s3->skyRibbon); PutG(p,&pos,1,s3->countryRibbon); PutG(p,&pos,1,s3->nationalRibbon); PutG(p,&pos,1,s3->earthRibbon); PutG(p,&pos,1,s3->worldRibbon);
+    PutG(p,&pos,4,s3->dynamaxLevel); PutG(p,&pos,1,s3->gigantamaxFactor);
+    PutG(p,&pos,1,b->unused_13); PutG(p,&pos,1,b->unused_1E); PutG(p,&pos,1,b->blockBoxRS);
+}
+static void WriteGenomeBits(struct BoxPokemon *b, const u32 *p)
+{
+    struct PokemonSubstruct0 *s0 = GetSubstruct0(b); struct PokemonSubstruct1 *s1 = GetSubstruct1(b); struct PokemonSubstruct3 *s3 = GetSubstruct3(b);
+    u32 pos = 0;
+    s3->hpIV = TakeG(p,&pos,5); s3->attackIV = TakeG(p,&pos,5); s3->defenseIV = TakeG(p,&pos,5); s3->speedIV = TakeG(p,&pos,5); s3->spAttackIV = TakeG(p,&pos,5); s3->spDefenseIV = TakeG(p,&pos,5);
+    s0->unused_02 = TakeG(p,&pos,6); s0->unused_04 = TakeG(p,&pos,3); s0->unused_0A = TakeG(p,&pos,2); s0->teraType = TakeG(p,&pos,5);
+    s1->unused_04 = TakeG(p,&pos,5); s1->unused_06 = TakeG(p,&pos,3);
+    s1->hyperTrainedHP = TakeG(p,&pos,1); s1->hyperTrainedAttack = TakeG(p,&pos,1); s1->hyperTrainedDefense = TakeG(p,&pos,1); s1->hyperTrainedSpeed = TakeG(p,&pos,1); s1->hyperTrainedSpAttack = TakeG(p,&pos,1); s1->hyperTrainedSpDefense = TakeG(p,&pos,1);
+    s3->unused_0B = TakeG(p,&pos,1); s3->isShadow = TakeG(p,&pos,1);
+    s3->marineRibbon = TakeG(p,&pos,1); s3->landRibbon = TakeG(p,&pos,1); s3->skyRibbon = TakeG(p,&pos,1); s3->countryRibbon = TakeG(p,&pos,1); s3->nationalRibbon = TakeG(p,&pos,1); s3->earthRibbon = TakeG(p,&pos,1); s3->worldRibbon = TakeG(p,&pos,1);
+    s3->dynamaxLevel = TakeG(p,&pos,4); s3->gigantamaxFactor = TakeG(p,&pos,1);
+    b->unused_13 = TakeG(p,&pos,1); b->unused_1E = TakeG(p,&pos,1); b->blockBoxRS = TakeG(p,&pos,1);
+}
+static void ReadGenomeDecrypted(struct BoxPokemon *b, struct Genome *g)
+{
+    u32 p[GENOME_PACKED_WORDS];
+    ReadGenomeBits(b, p);
+    if (!UnpackGenome(p, g))
+    {
+        struct PokemonSubstruct3 *s3 = GetSubstruct3(b);
+        u8 ivs[NUM_STATS] = {s3->hpIV, s3->attackIV, s3->defenseIV, s3->speedIV, s3->spAttackIV, s3->spDefenseIV};
+        SynthesizeLegacyGenome(g, ivs, GET_SHINY_VALUE(b->otId, b->personality) < SHINY_ODDS, b->personality);
+    }
+}
+static u32 GenomeIVDecrypted(struct BoxPokemon *b, u32 stat) { struct Genome g; ReadGenomeDecrypted(b, &g); return GenomeIV(&g, stat); }
+static void SetGenomeIVDecrypted(struct BoxPokemon *b, u32 stat, u8 iv)
+{
+    struct Genome g; u32 p[GENOME_PACKED_WORDS];
+    ReadGenomeDecrypted(b, &g); GenomeFromIVs(&g, stat, iv, b->personality); PackGenome(&g, p); WriteGenomeBits(b, p);
+}
+void GetBoxMonGenome(const struct BoxPokemon *boxMon, struct Genome *genome)
+{
+    struct BoxPokemon copy = *boxMon;
+    DecryptBoxMon(&copy);
+    ReadGenomeDecrypted(&copy, genome);
+}
+void SetBoxMonGenome(struct BoxPokemon *boxMon, const struct Genome *genome)
+{
+    u32 p[GENOME_PACKED_WORDS];
+    bool32 shiny = GenomeIsShiny(genome);
+    DecryptBoxMon(boxMon);
+    if (CalculateBoxMonChecksum(boxMon) != boxMon->checksum) { EncryptBoxMon(boxMon); return; }
+    PackGenome(genome, p);
+    WriteGenomeBits(boxMon, p);
+    boxMon->shinyModifier = (GET_SHINY_VALUE(boxMon->otId, boxMon->personality) < SHINY_ODDS) ^ shiny;
+    boxMon->checksum = CalculateBoxMonChecksum(boxMon);
+    EncryptBoxMon(boxMon);
+}
+
 u32 GetBoxMonData3(struct BoxPokemon *boxMon, s32 field, u8 *data)
 {
     s32 i;
@@ -2079,34 +2159,15 @@ u32 GetBoxMonData3(struct BoxPokemon *boxMon, s32 field, u8 *data)
                     retVal++;
                 }
 
-                // Vanilla Pokémon have 0s in nickname11 and nickname12
-                // so if both are 0 we assume that this is a vanilla
-                // Pokémon and replace them with EOS. This means that
-                // two CHAR_SPACE at the end of a nickname are trimmed.
-                struct PokemonSubstruct0 *substruct0 = GetSubstruct0(boxMon);
+                // Emerald Evolved: nickname chars 11-12 hold MON_DATA_GENERATION, so nicknames end at 10
                 if (field != MON_DATA_NICKNAME10 && POKEMON_NAME_LENGTH >= 12)
                 {
-                    if (substruct0->nickname11 == 0 && substruct0->nickname12 == 0)
-                    {
-                        data[retVal++] = EOS;
-                        data[retVal++] = EOS;
-                    }
-                    else
-                    {
-                        data[retVal++] = substruct0->nickname11;
-                        data[retVal++] = substruct0->nickname12;
-                    }
+                    data[retVal++] = EOS;
+                    data[retVal++] = EOS;
                 }
                 else if (field != MON_DATA_NICKNAME10 && POKEMON_NAME_LENGTH >= 11)
                 {
-                    if (substruct0->nickname11 == 0)
-                    {
-                        data[retVal++] = EOS;
-                    }
-                    else
-                    {
-                        data[retVal++] = substruct0->nickname11;
-                    }
+                    data[retVal++] = EOS;
                 }
 
                 data[retVal] = EOS;
@@ -2213,22 +2274,22 @@ u32 GetBoxMonData3(struct BoxPokemon *boxMon, s32 field, u8 *data)
             retVal = GetSubstruct3(boxMon)->otGender;
             break;
         case MON_DATA_HP_IV:
-            retVal = GetSubstruct3(boxMon)->hpIV;
+            retVal = GenomeIVDecrypted(boxMon, 0);
             break;
         case MON_DATA_ATK_IV:
-            retVal = GetSubstruct3(boxMon)->attackIV;
+            retVal = GenomeIVDecrypted(boxMon, 1);
             break;
         case MON_DATA_DEF_IV:
-            retVal = GetSubstruct3(boxMon)->defenseIV;
+            retVal = GenomeIVDecrypted(boxMon, 2);
             break;
         case MON_DATA_SPEED_IV:
-            retVal = GetSubstruct3(boxMon)->speedIV;
+            retVal = GenomeIVDecrypted(boxMon, 3);
             break;
         case MON_DATA_SPATK_IV:
-            retVal = GetSubstruct3(boxMon)->spAttackIV;
+            retVal = GenomeIVDecrypted(boxMon, 4);
             break;
         case MON_DATA_SPDEF_IV:
-            retVal = GetSubstruct3(boxMon)->spDefenseIV;
+            retVal = GenomeIVDecrypted(boxMon, 5);
             break;
         case MON_DATA_IS_EGG:
             retVal = IsEggOrBadEgg(boxMon);
@@ -2267,25 +2328,25 @@ u32 GetBoxMonData3(struct BoxPokemon *boxMon, s32 field, u8 *data)
             retVal = GetSubstruct3(boxMon)->effortRibbon;
             break;
         case MON_DATA_MARINE_RIBBON:
-            retVal = GetSubstruct3(boxMon)->marineRibbon;
+            retVal = 0; // realgen: genome bits
             break;
         case MON_DATA_LAND_RIBBON:
-            retVal = GetSubstruct3(boxMon)->landRibbon;
+            retVal = 0; // realgen: genome bits
             break;
         case MON_DATA_SKY_RIBBON:
-            retVal = GetSubstruct3(boxMon)->skyRibbon;
+            retVal = 0; // realgen: genome bits
             break;
         case MON_DATA_COUNTRY_RIBBON:
-            retVal = GetSubstruct3(boxMon)->countryRibbon;
+            retVal = 0; // realgen: genome bits
             break;
         case MON_DATA_NATIONAL_RIBBON:
-            retVal = GetSubstruct3(boxMon)->nationalRibbon;
+            retVal = 0; // realgen: genome bits
             break;
         case MON_DATA_EARTH_RIBBON:
-            retVal = GetSubstruct3(boxMon)->earthRibbon;
+            retVal = 0; // realgen: genome bits
             break;
         case MON_DATA_WORLD_RIBBON:
-            retVal = GetSubstruct3(boxMon)->worldRibbon;
+            retVal = 0; // realgen: genome bits
             break;
         case MON_DATA_MODERN_FATEFUL_ENCOUNTER:
             retVal = GetSubstruct3(boxMon)->modernFatefulEncounter;
@@ -2298,12 +2359,10 @@ u32 GetBoxMonData3(struct BoxPokemon *boxMon, s32 field, u8 *data)
         case MON_DATA_IVS:
         {
             struct PokemonSubstruct3 *substruct3 = GetSubstruct3(boxMon);
-            retVal = substruct3->hpIV
-                    | (substruct3->attackIV << 5)
-                    | (substruct3->defenseIV << 10)
-                    | (substruct3->speedIV << 15)
-                    | (substruct3->spAttackIV << 20)
-                    | (substruct3->spDefenseIV << 25);
+            (void)substruct3;
+            retVal = 0;
+            for (u32 st = 0; st < NUM_STATS; st++)
+                retVal |= GenomeIVDecrypted(boxMon, st) << (5 * st);
             break;
         }
         case MON_DATA_KNOWN_MOVES:
@@ -2340,13 +2399,13 @@ u32 GetBoxMonData3(struct BoxPokemon *boxMon, s32 field, u8 *data)
                 retVal += substruct3->victoryRibbon;
                 retVal += substruct3->artistRibbon;
                 retVal += substruct3->effortRibbon;
-                retVal += substruct3->marineRibbon;
-                retVal += substruct3->landRibbon;
-                retVal += substruct3->skyRibbon;
-                retVal += substruct3->countryRibbon;
-                retVal += substruct3->nationalRibbon;
-                retVal += substruct3->earthRibbon;
-                retVal += substruct3->worldRibbon;
+                
+                
+                
+                
+                
+                
+                
             }
             break;
         case MON_DATA_RIBBONS:
@@ -2363,41 +2422,41 @@ u32 GetBoxMonData3(struct BoxPokemon *boxMon, s32 field, u8 *data)
                        | (substruct3->victoryRibbon << 17)
                        | (substruct3->artistRibbon << 18)
                        | (substruct3->effortRibbon << 19)
-                       | (substruct3->marineRibbon << 20)
-                       | (substruct3->landRibbon << 21)
-                       | (substruct3->skyRibbon << 22)
-                       | (substruct3->countryRibbon << 23)
-                       | (substruct3->nationalRibbon << 24)
-                       | (substruct3->earthRibbon << 25)
-                       | (substruct3->worldRibbon << 26);
+                       | (0 << 20)
+                       | (0 << 21)
+                       | (0 << 22)
+                       | (0 << 23)
+                       | (0 << 24)
+                       | (0 << 25)
+                       | (0 << 26);
             }
             break;
         case MON_DATA_HYPER_TRAINED_HP:
-            retVal = GetSubstruct1(boxMon)->hyperTrainedHP;
+            retVal = 0; // realgen: genome bits
             break;
         case MON_DATA_HYPER_TRAINED_ATK:
-            retVal = GetSubstruct1(boxMon)->hyperTrainedAttack;
+            retVal = 0; // realgen: genome bits
             break;
         case MON_DATA_HYPER_TRAINED_DEF:
-            retVal = GetSubstruct1(boxMon)->hyperTrainedDefense;
+            retVal = 0; // realgen: genome bits
             break;
         case MON_DATA_HYPER_TRAINED_SPEED:
-            retVal = GetSubstruct1(boxMon)->hyperTrainedSpeed;
+            retVal = 0; // realgen: genome bits
             break;
         case MON_DATA_HYPER_TRAINED_SPATK:
-            retVal = GetSubstruct1(boxMon)->hyperTrainedSpAttack;
+            retVal = 0; // realgen: genome bits
             break;
         case MON_DATA_HYPER_TRAINED_SPDEF:
-            retVal = GetSubstruct1(boxMon)->hyperTrainedSpDefense;
+            retVal = 0; // realgen: genome bits
             break;
         case MON_DATA_IS_SHADOW:
-            retVal = GetSubstruct3(boxMon)->isShadow;
+            retVal = 0; // realgen: genome bits
             break;
         case MON_DATA_DYNAMAX_LEVEL:
-            retVal = GetSubstruct3(boxMon)->dynamaxLevel;
+            retVal = 0; // realgen: genome bits
             break;
         case MON_DATA_GIGANTAMAX_FACTOR:
-            retVal = GetSubstruct3(boxMon)->gigantamaxFactor;
+            retVal = 0; // realgen: genome bits
             break;
         case MON_DATA_TERA_TYPE:
             {
@@ -2406,7 +2465,7 @@ u32 GetBoxMonData3(struct BoxPokemon *boxMon, s32 field, u8 *data)
                 {
                     retVal = gSpeciesInfo[substruct0->species].forceTeraType;
                 }
-                else if (substruct0->teraType == TYPE_NONE) // Tera Type hasn't been modified so we can just use the personality
+                else if (TRUE) // realgen: genome bits; Tera Type hasn't been modified so we can just use the personality
                 {
                     const enum Type *types = gSpeciesInfo[substruct0->species].types;
                     retVal = (boxMon->personality & 0x1) == 0 ? types[0] : types[1];
@@ -2424,6 +2483,12 @@ u32 GetBoxMonData3(struct BoxPokemon *boxMon, s32 field, u8 *data)
                     .tracker1 = substruct1->evolutionTracker1,
                     .tracker2 = substruct1->evolutionTracker2,
                 }.combinedValue;
+            }
+            break;
+        case MON_DATA_GENERATION:   // Emerald Evolved: nickname chars 11-12 hold the generation (nicknames are 10 long)
+            {
+                struct PokemonSubstruct0 *substruct0 = GetSubstruct0(boxMon);
+                retVal = substruct0->nickname11 | (substruct0->nickname12 << 8);
             }
             break;
         default:
@@ -2604,22 +2669,9 @@ void SetBoxMonData(struct BoxPokemon *boxMon, s32 field, const void *dataArg)
         case MON_DATA_NICKNAME10:
         {
             s32 i;
-            struct PokemonSubstruct0 *substruct0 = GetSubstruct0(boxMon);
             for (i = 0; i < min(sizeof(boxMon->nickname), POKEMON_NAME_LENGTH); i++)
                 boxMon->nickname[i] = data[i];
-            if (field != MON_DATA_NICKNAME10)
-            {
-                if (POKEMON_NAME_LENGTH >= 11)
-                    substruct0->nickname11 = data[10];
-                if (POKEMON_NAME_LENGTH >= 12)
-                    substruct0->nickname12 = data[11];
-            }
-            else
-            {
-                substruct0->nickname11 = EOS;
-                substruct0->nickname12 = EOS;
-            }
-            break;
+            break;   // Emerald Evolved: chars 11-12 are MON_DATA_GENERATION, never written by a name
         }
         case MON_DATA_SPECIES:
         {
@@ -2728,22 +2780,22 @@ void SetBoxMonData(struct BoxPokemon *boxMon, s32 field, const void *dataArg)
             SET8(GetSubstruct3(boxMon)->otGender);
             break;
         case MON_DATA_HP_IV:
-            SET8(GetSubstruct3(boxMon)->hpIV);
+            { u8 iv_; SET8(iv_); SetGenomeIVDecrypted(boxMon, 0, iv_); }
             break;
         case MON_DATA_ATK_IV:
-            SET8(GetSubstruct3(boxMon)->attackIV);
+            { u8 iv_; SET8(iv_); SetGenomeIVDecrypted(boxMon, 1, iv_); }
             break;
         case MON_DATA_DEF_IV:
-            SET8(GetSubstruct3(boxMon)->defenseIV);
+            { u8 iv_; SET8(iv_); SetGenomeIVDecrypted(boxMon, 2, iv_); }
             break;
         case MON_DATA_SPEED_IV:
-            SET8(GetSubstruct3(boxMon)->speedIV);
+            { u8 iv_; SET8(iv_); SetGenomeIVDecrypted(boxMon, 3, iv_); }
             break;
         case MON_DATA_SPATK_IV:
-            SET8(GetSubstruct3(boxMon)->spAttackIV);
+            { u8 iv_; SET8(iv_); SetGenomeIVDecrypted(boxMon, 4, iv_); }
             break;
         case MON_DATA_SPDEF_IV:
-            SET8(GetSubstruct3(boxMon)->spDefenseIV);
+            { u8 iv_; SET8(iv_); SetGenomeIVDecrypted(boxMon, 5, iv_); }
             break;
         case MON_DATA_IS_EGG:
             SET8(GetSubstruct3(boxMon)->isEgg);
@@ -2783,25 +2835,25 @@ void SetBoxMonData(struct BoxPokemon *boxMon, s32 field, const void *dataArg)
             SET8(GetSubstruct3(boxMon)->effortRibbon);
             break;
         case MON_DATA_MARINE_RIBBON:
-            SET8(GetSubstruct3(boxMon)->marineRibbon);
+            // realgen: genome bits
             break;
         case MON_DATA_LAND_RIBBON:
-            SET8(GetSubstruct3(boxMon)->landRibbon);
+            // realgen: genome bits
             break;
         case MON_DATA_SKY_RIBBON:
-            SET8(GetSubstruct3(boxMon)->skyRibbon);
+            // realgen: genome bits
             break;
         case MON_DATA_COUNTRY_RIBBON:
-            SET8(GetSubstruct3(boxMon)->countryRibbon);
+            // realgen: genome bits
             break;
         case MON_DATA_NATIONAL_RIBBON:
-            SET8(GetSubstruct3(boxMon)->nationalRibbon);
+            // realgen: genome bits
             break;
         case MON_DATA_EARTH_RIBBON:
-            SET8(GetSubstruct3(boxMon)->earthRibbon);
+            // realgen: genome bits
             break;
         case MON_DATA_WORLD_RIBBON:
-            SET8(GetSubstruct3(boxMon)->worldRibbon);
+            // realgen: genome bits
             break;
         case MON_DATA_MODERN_FATEFUL_ENCOUNTER:
             SET8(GetSubstruct3(boxMon)->modernFatefulEncounter);
@@ -2811,43 +2863,40 @@ void SetBoxMonData(struct BoxPokemon *boxMon, s32 field, const void *dataArg)
             u32 ivs;
             struct PokemonSubstruct3 *substruct3 = GetSubstruct3(boxMon);
             SET32(ivs);
-            substruct3->hpIV = ivs & MAX_IV_MASK;
-            substruct3->attackIV = (ivs >> 5) & MAX_IV_MASK;
-            substruct3->defenseIV = (ivs >> 10) & MAX_IV_MASK;
-            substruct3->speedIV = (ivs >> 15) & MAX_IV_MASK;
-            substruct3->spAttackIV = (ivs >> 20) & MAX_IV_MASK;
-            substruct3->spDefenseIV = (ivs >> 25) & MAX_IV_MASK;
+            (void)substruct3;
+            for (u32 st = 0; st < NUM_STATS; st++)
+                SetGenomeIVDecrypted(boxMon, st, (ivs >> (5 * st)) & MAX_IV_MASK);
             break;
         }
         case MON_DATA_HYPER_TRAINED_HP:
-            SET8(GetSubstruct1(boxMon)->hyperTrainedHP);
+            // realgen: genome bits
             break;
         case MON_DATA_HYPER_TRAINED_ATK:
-            SET8(GetSubstruct1(boxMon)->hyperTrainedAttack);
+            // realgen: genome bits
             break;
         case MON_DATA_HYPER_TRAINED_DEF:
-            SET8(GetSubstruct1(boxMon)->hyperTrainedDefense);
+            // realgen: genome bits
             break;
         case MON_DATA_HYPER_TRAINED_SPEED:
-            SET8(GetSubstruct1(boxMon)->hyperTrainedSpeed);
+            // realgen: genome bits
             break;
         case MON_DATA_HYPER_TRAINED_SPATK:
-            SET8(GetSubstruct1(boxMon)->hyperTrainedSpAttack);
+            // realgen: genome bits
             break;
         case MON_DATA_HYPER_TRAINED_SPDEF:
-            SET8(GetSubstruct1(boxMon)->hyperTrainedSpDefense);
+            // realgen: genome bits
             break;
         case MON_DATA_IS_SHADOW:
-            SET8(GetSubstruct3(boxMon)->isShadow);
+            // realgen: genome bits
             break;
         case MON_DATA_DYNAMAX_LEVEL:
-            SET8(GetSubstruct3(boxMon)->dynamaxLevel);
+            // realgen: genome bits
             break;
         case MON_DATA_GIGANTAMAX_FACTOR:
-            SET8(GetSubstruct3(boxMon)->gigantamaxFactor);
+            // realgen: genome bits
             break;
         case MON_DATA_TERA_TYPE:
-            SET8(GetSubstruct0(boxMon)->teraType);
+            // realgen: genome bits (tera type follows the personality)
             break;
         case MON_DATA_EVOLUTION_TRACKER:
         {
@@ -2856,6 +2905,13 @@ void SetBoxMonData(struct BoxPokemon *boxMon, s32 field, const void *dataArg)
             SET32(evoTracker.combinedValue);
             substruct1->evolutionTracker1 = evoTracker.tracker1;
             substruct1->evolutionTracker2 = evoTracker.tracker2;
+            break;
+        }
+        case MON_DATA_GENERATION:
+        {
+            struct PokemonSubstruct0 *substruct0 = GetSubstruct0(boxMon);
+            substruct0->nickname11 = data[0];
+            substruct0->nickname12 = data[1];
             break;
         }
         default:
@@ -5222,17 +5278,20 @@ const u16 *GetMonFrontSpritePal(struct Pokemon *mon)
     bool32 isShiny = GetMonData(mon, MON_DATA_IS_SHINY);
     u32 personality = GetMonData(mon, MON_DATA_PERSONALITY);
     bool32 isEgg = GetMonData(mon, MON_DATA_IS_EGG);
-    return GetMonSpritePalFromSpeciesAndPersonalityIsEgg(species, isShiny, personality, isEgg);
+    return GeneticMonPalette(&mon->box, GetMonSpritePalFromSpeciesIsEgg(species, isShiny, IsPersonalityFemale(species, personality), isEgg));
 }
 
 const u16 *GetMonSpritePalFromSpeciesAndPersonality(enum Species species, bool32 isShiny, u32 personality)
 {
-    return GetMonSpritePalFromSpeciesIsEgg(species, isShiny, IsPersonalityFemale(species, personality), FALSE);
+    return GetMonSpritePalFromSpeciesAndPersonalityIsEgg(species, isShiny, personality, FALSE);
 }
 
+// Emerald Evolved: every screen that draws a Pokémon from species + personality (summary, evolution, trade, Pokédex
+// after a catch, contest, PC preview...) gets the genetic colours of the Pokémon with that personality.
 const u16 *GetMonSpritePalFromSpeciesAndPersonalityIsEgg(enum Species species, bool32 isShiny, u32 personality, bool32 isEgg)
 {
-    return GetMonSpritePalFromSpeciesIsEgg(species, isShiny, IsPersonalityFemale(species, personality), isEgg);
+    const u16 *base = GetMonSpritePalFromSpeciesIsEgg(species, isShiny, IsPersonalityFemale(species, personality), isEgg);
+    return isEgg ? base : GeneticPaletteForPersonality(personality, base);
 }
 
 const u16 *GetMonSpritePalFromSpecies(enum Species species, bool32 isShiny, bool32 isFemale)

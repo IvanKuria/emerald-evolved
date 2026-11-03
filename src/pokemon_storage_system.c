@@ -1,4 +1,5 @@
 #include "global.h"
+#include "genetics_palette.h"
 #include "malloc.h"
 #include "bg.h"
 #include "data.h"
@@ -4453,6 +4454,7 @@ static void CreateMovingMonIcon(void)
     u8 priority = GetMonIconPriorityByCursorPos();
     bool32 isEgg = GetMonData(&sStorage->movingMon, MON_DATA_IS_EGG);
 
+    SetMonIconGenomeHint(&sStorage->movingMon.box);   // Emerald Evolved: the held mon is in no box
     sStorage->movingMonSprite = CreateMonIconSprite(species, personality, 0, 0, priority, 7, isEgg);
     sStorage->movingMonSprite->callback = SpriteCB_HeldMon;
 }
@@ -5201,6 +5203,7 @@ static struct Sprite *CreateMonIconSprite(enum Species species, u32 personality,
     u8 spriteId;
     struct SpriteTemplate template = sSpriteTemplate_MonIcon;
     u32 iconType = NORMAL_ICON;
+    enum Species monSpecies = species;
 
     species = GetIconSpecies(species, personality);
     if (isEgg)
@@ -5243,6 +5246,9 @@ static struct Sprite *CreateMonIconSprite(enum Species species, u32 personality,
     gSprites[spriteId].oam.priority = oamPriority;
     gSprites[spriteId].data[0] = species;
     gSprites[spriteId].data[1] = iconType;
+    if (!isEgg)   // Emerald Evolved: the icon in this Pokémon's genetic colours
+        SetMonIconGenePalette(spriteId, monSpecies, personality, template.paletteTag - PALTAG_MON_ICON_0,
+                              GetMonIconTilesIsEgg(monSpecies, personality, FALSE));
 
     return &gSprites[spriteId];
 }

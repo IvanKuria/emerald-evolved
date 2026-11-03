@@ -1,4 +1,5 @@
 #include "global.h"
+#include "evo_test.h"
 #include "overworld.h"
 #include "battle_pyramid.h"
 #include "battle_setup.h"
@@ -1943,6 +1944,10 @@ void CB2_NewGame(void)
     else
         gFieldCallback = ExecuteTruckSequence;
     gFieldCallback2 = NULL;
+#if EVO_TEST
+    EvoTest_NewGame();
+    gFieldCallback = NULL;
+#endif
     DoMapLoadLoop(&gMain.state);
     SetFieldVBlankCallback();
     SetMainCallback1(CB1_Overworld);

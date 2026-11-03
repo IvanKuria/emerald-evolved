@@ -1,4 +1,5 @@
 #include "global.h"
+#include "genetics.h"
 #include "pokemon.h"
 #include "battle.h"
 #include "daycare.h"
@@ -33,7 +34,7 @@
 #define IS_DITTO(species) (gSpeciesInfo[species].eggGroups[0] == EGG_GROUP_DITTO || gSpeciesInfo[species].eggGroups[1] == EGG_GROUP_DITTO)
 
 static void ClearDaycareMonMail(struct DaycareMail *mail);
-static void SetInitialEggData(struct Pokemon *mon, enum Species species, struct DayCare *daycare);
+static void SetInitialEggData(struct Pokemon *mon, enum Species species, struct DayCare *daycare, u8 gender);
 static void DaycarePrintMonInfo(u8 windowId, u32 daycareSlotId, u8 y);
 static u8 ModifyBreedingScoreForOvalCharm(u8 score);
 static bool32 IsEggPending(struct DayCare *daycare);
@@ -914,6 +915,27 @@ static void AlterEggSpeciesWithIncenseItem(enum Species *species, struct DayCare
 
 STATIC_ASSERT(P_SCATTERBUG_LINE_FORM_BREED == SPECIES_SCATTERBUG_ICY_SNOW || (P_SCATTERBUG_LINE_FORM_BREED >= SPECIES_SCATTERBUG_POLAR && P_SCATTERBUG_LINE_FORM_BREED <= SPECIES_SCATTERBUG_POKEBALL), ScatterbugLineFormBreedMustBeAValidScatterbugForm);
 
+// realgen: the Ditto partner's slot when one parent is Ditto (the egg is then a clone of the other), else -1
+static s32 GetClonedParentSlot(struct DayCare *daycare)
+{
+    for (u32 i = 0; i < DAYCARE_MON_COUNT; i++)
+        if (IS_DITTO(GetBoxMonData(&daycare->mons[i].mon, MON_DATA_SPECIES)))
+            return i ^ 1;
+    return -1;
+}
+
+// realgen species barrier: two Pokémon breed only within one evolution family. Nidoran and Volbeat/Illumise are one
+// species split by sex, and regional forms share their family.
+static enum Species GetBreedingFamily(enum Species species)
+{
+    species = GET_BASE_SPECIES_ID(GetEggSpecies(species));
+    if (species == SPECIES_NIDORAN_M)
+        species = SPECIES_NIDORAN_F;
+    else if (species == SPECIES_VOLBEAT)
+        species = SPECIES_ILLUMISE;
+    return species;
+}
+
 static enum Species DetermineEggSpeciesAndParentSlots(struct DayCare *daycare, u8 *parentSlots)
 {
     u32 i;
@@ -954,7 +976,10 @@ static enum Species DetermineEggSpeciesAndParentSlots(struct DayCare *daycare, u
     else
         eggSpecies = motherEggSpecies;
 
-    if (eggSpecies == SPECIES_NIDORAN_F && daycare->offspringPersonality & EGG_GENDER_MALE)
+    if (GetClonedParentSlot(daycare) >= 0 && (eggSpecies == SPECIES_NIDORAN_F || eggSpecies == SPECIES_NIDORAN_M
+                                            || eggSpecies == SPECIES_ILLUMISE || eggSpecies == SPECIES_VOLBEAT))
+        ; // realgen: a Ditto egg is a clone, so it keeps the parent's sex and therefore its species
+    else if (eggSpecies == SPECIES_NIDORAN_F && daycare->offspringPersonality & EGG_GENDER_MALE)
         eggSpecies = SPECIES_NIDORAN_M;
     else if (eggSpecies == SPECIES_ILLUMISE && daycare->offspringPersonality & EGG_GENDER_MALE)
         eggSpecies = SPECIES_VOLBEAT;
@@ -1004,11 +1029,42 @@ static void _GiveEggFromDaycare(struct DayCare *daycare)
     species = DetermineEggSpeciesAndParentSlots(daycare, parentSlots);
     if (P_INCENSE_BREEDING < GEN_9)
         AlterEggSpeciesWithIncenseItem(&species, daycare);
-    SetInitialEggData(&egg, species, daycare);
-    InheritIVs(&egg, daycare);
-    InheritPokeball(&egg, daycare);
-    BuildEggMoveset(&egg, &daycare->mons[parentSlots[1]].mon, &daycare->mons[parentSlots[0]].mon);
-    InheritAbility(&egg, daycare);
+    {   // realgen: the egg's genes come from its parents. A Ditto egg is a clone of the other parent, including
+        // its sex (the clone's personality is drawn with the parent's gender) and ability slot.
+        struct Genome mother, father, child;
+        s32 cloned = GetClonedParentSlot(daycare);
+        if (cloned >= 0)
+        {
+            GetBoxMonGenome(&daycare->mons[cloned].mon, &mother);
+            CloneGenome(&child, &mother);
+            SetInitialEggData(&egg, species, daycare, GetBoxMonGender(&daycare->mons[cloned].mon));
+        }
+        else
+        {
+            GetBoxMonGenome(&daycare->mons[parentSlots[0]].mon, &mother);   // parentSlots[0] is the female
+            GetBoxMonGenome(&daycare->mons[parentSlots[1]].mon, &father);
+            InheritGenome(&child, &mother, &father);
+            SetInitialEggData(&egg, species, daycare, MON_GENDER_RANDOM);
+        }
+        SetBoxMonGenome(&egg.box, &child);
+        CalculateMonStats(&egg);
+        InheritPokeball(&egg, daycare);
+        BuildEggMoveset(&egg, &daycare->mons[parentSlots[1]].mon, &daycare->mons[parentSlots[0]].mon);
+        InheritAbility(&egg, daycare);
+        if (cloned >= 0)
+        {
+            u8 abilityNum = GetBoxMonData(&daycare->mons[cloned].mon, MON_DATA_ABILITY_NUM);
+            SetMonData(&egg, MON_DATA_ABILITY_NUM, &abilityNum);
+        }
+        {   // generation: one more than the older parent's (a clone: one more than its parent's)
+            u32 g0 = GetBoxMonData(&daycare->mons[cloned >= 0 ? cloned : parentSlots[0]].mon, MON_DATA_GENERATION);
+            u32 g1 = GetBoxMonData(&daycare->mons[cloned >= 0 ? cloned : parentSlots[1]].mon, MON_DATA_GENERATION);
+            u16 gen = (g0 > g1 ? g0 : g1) + 1;
+            if (gen == 0)
+                gen = 0xFFFF;
+            SetMonData(&egg, MON_DATA_GENERATION, &gen);
+        }
+    }
 
     isEgg = TRUE;
     SetMonData(&egg, MON_DATA_IS_EGG, &isEgg);
@@ -1045,13 +1101,13 @@ void CreateEgg(struct Pokemon *mon, enum Species species, bool8 setHotSpringsLoc
     SetMonData(mon, MON_DATA_IS_EGG, &isEgg);
 }
 
-static void SetInitialEggData(struct Pokemon *mon, enum Species species, struct DayCare *daycare)
+static void SetInitialEggData(struct Pokemon *mon, enum Species species, struct DayCare *daycare, u8 gender)
 {
     u32 personality;
     u8 metLevel;
     u8 language;
 
-    personality = GetMonPersonality(species, MON_GENDER_RANDOM, GetChildNature(daycare), RANDOM_UNOWN_LETTER);
+    personality = GetMonPersonality(species, gender, GetChildNature(daycare), RANDOM_UNOWN_LETTER);
     CreateMonWithIVs(mon, species, EGG_HATCH_LEVEL, personality, OTID_STRUCT_PLAYER_ID, USE_RANDOM_IVS);
     metLevel = 0;
     language = LANGUAGE_JAPANESE;
@@ -1283,6 +1339,16 @@ u8 GetDaycareCompatibilityScore(struct DayCare *daycare)
             return PARENTS_INCOMPATIBLE;
         if (!EggGroupsOverlap(eggGroups[0], eggGroups[1]))
             return PARENTS_INCOMPATIBLE;
+        if (GetBreedingFamily(species[0]) != GetBreedingFamily(species[1]))
+            return PARENTS_INCOMPATIBLE;
+        // realgen speciation (sim/SPECIATION.md): within a family the score comes from the speciation loci, not the
+        // OT. 70 / 50 / 20 / 0 for 0 / 1 / 2 / 3+ completed opposite Dobzhansky-Muller pairs.
+        {
+            struct Genome g0, g1;
+            GetBoxMonGenome(&daycare->mons[0].mon, &g0);
+            GetBoxMonGenome(&daycare->mons[1].mon, &g1);
+            return GenomeCompatibilityScore(&g0, &g1);
+        }
 
         if (species[0] == species[1])
         {

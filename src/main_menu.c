@@ -1091,7 +1091,12 @@ static void Task_HandleMainMenuAPressed(u8 taskId)
 
             gPlttBufferUnfaded[0] = RGB_BLACK;
             gPlttBufferFaded[0] = RGB_BLACK;
+#if EVO_TEST
+            SetMainCallback2(CB2_NewGame);
+            DestroyTask(taskId);
+#else
             gTasks[taskId].func = Task_NewGameBirchSpeech_Init;
+#endif
             break;
         case ACTION_CONTINUE:
             gPlttBufferUnfaded[0] = RGB_BLACK;

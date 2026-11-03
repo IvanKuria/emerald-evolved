@@ -2172,7 +2172,7 @@ static const struct NamingScreenTemplate sPCBoxNamingTemplate =
 static const struct NamingScreenTemplate sMonNamingScreenTemplate =
 {
     .copyExistingString = FALSE,
-    .maxChars = POKEMON_NAME_LENGTH,
+    .maxChars = 10,   // Emerald Evolved: nickname chars 11-12 hold the generation
     .iconFunction = 3,
     .addGenderIcon = TRUE,
     .initialPage = KBPAGE_LETTERS_UPPER,

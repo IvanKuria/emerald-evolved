@@ -1,4 +1,5 @@
 #include "global.h"
+#include "genetics.h"
 #include "main.h"
 #include "battle.h"
 #include "battle_anim.h"
@@ -258,6 +259,7 @@ static void PrintInfoPageText(void);
 static void Task_PrintInfoPage(u8);
 static void PrintMonOTName(void);
 static void PrintMonOTID(void);
+static void PrintMonHeight(void);
 static void PrintMonAbilityName(void);
 static void PrintMonAbilityDescription(void);
 static void BufferMonTrainerMemo(void);
@@ -3461,6 +3463,7 @@ static void PrintInfoPageText(void)
     {
         PrintMonOTName();
         PrintMonOTID();
+        PrintMonHeight();
         PrintMonAbilityName();
         PrintMonAbilityDescription();
         BufferMonTrainerMemo();
@@ -3478,6 +3481,7 @@ static void Task_PrintInfoPage(u8 taskId)
         break;
     case 2:
         PrintMonOTID();
+        PrintMonHeight();
         break;
     case 3:
         PrintMonAbilityName();
@@ -3496,6 +3500,45 @@ static void Task_PrintInfoPage(u8 taskId)
         return;
     }
     data[0]++;
+}
+
+// Emerald Evolved: the individual's height (species Pokédex height x its genetic size) on the TYPE row, right of the
+// type icons: "HEIGHT 0.57 m", or a shorter form when two type icons leave less room.
+static void PrintMonHeight(void)
+{
+    static const u8 sText_Height[] = _("HEIGHT ");
+    static const u8 sText_HT[] = _("HT ");
+    static const u8 sText_Metres[] = _(" m");
+    struct PokeSummary *summary = &sMonSummaryScreen->summary;
+    u32 win = PSS_LABEL_WINDOW_POKEMON_INFO_TYPE, right = 144, left, i;
+    u8 num[16], text[32], *p;
+    struct Genome g;
+    u32 cm;
+
+    left = (GetSpeciesType(summary->species, 0) != GetSpeciesType(summary->species, 1)) ? 106 : 66;
+    FillWindowPixelRect(win, PIXEL_FILL(0), 66, 0, right - 66, 16);   // the previous Pokémon's text may have been wider
+    if (!summary->isEgg)
+    {
+        const u8 *labels[] = {sText_Height, sText_HT, gText_EmptyString2};
+        GetBoxMonGenome(&sMonSummaryScreen->currentMon.box, &g);
+        cm = GenomeHeightCm(&g, summary->pid, gSpeciesInfo[summary->species].height);
+        p = ConvertIntToDecimalStringN(num, cm / 100, STR_CONV_MODE_LEFT_ALIGN, 3);
+        *p++ = CHAR_PERIOD;
+        p = ConvertIntToDecimalStringN(p, cm % 100, STR_CONV_MODE_LEADING_ZEROS, 2);
+        StringCopy(p, sText_Metres);
+        for (i = 0; i < ARRAY_COUNT(labels) * 2; i++)
+        {
+            u32 font = (i & 1) ? FONT_SMALL : FONT_NORMAL, w;
+            StringAppend(StringCopy(text, labels[i / 2]), num);
+            w = GetStringWidth(font, text, 0);
+            if (w <= right - left || i == ARRAY_COUNT(labels) * 2 - 1)
+            {
+                PrintTextOnWindowWithFont(win, text, right - w, 1, 0, 0, font);
+                break;
+            }
+        }
+    }
+    CopyWindowToVram(win, COPYWIN_GFX);
 }
 
 static void PrintMonOTName(void)
@@ -3585,6 +3628,18 @@ static void BufferMonTrainerMemo(void)
         DynamicPlaceholderTextUtil_ExpandPlaceholders(gStringVar4, text);
         Free(metLevelString);
         Free(metLocationString);
+    }
+    {   // Emerald Evolved: bred Pokémon show their generation at the end of the memo ("ROUTE 117, gen 23.")
+        u32 gen = GetMonData(&sMonSummaryScreen->currentMon, MON_DATA_GENERATION);
+        u8 *end = gStringVar4 + StringLength(gStringVar4);
+        if (gen != 0 && end > gStringVar4 && end[-1] == CHAR_PERIOD)
+        {
+            static const u8 sGen[] = _(", gen ");
+            end = StringCopy(end - 1, sGen);
+            end = ConvertIntToDecimalStringN(end, gen, STR_CONV_MODE_LEFT_ALIGN, 5);
+            *end++ = CHAR_PERIOD;
+            *end = EOS;
+        }
     }
 }
 

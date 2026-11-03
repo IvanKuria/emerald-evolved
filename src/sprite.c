@@ -271,6 +271,16 @@ EWRAM_DATA static u8 sSpriteTileAllocBitmap[128] = {0};
 EWRAM_DATA s16 gSpriteCoordOffsetX = 0;
 EWRAM_DATA s16 gSpriteCoordOffsetY = 0;
 EWRAM_DATA struct OamMatrix gOamMatrices[OAM_MATRIX_COUNT] = {0};
+
+// realgen: display scale for one sprite (a battler's genetic body size), applied when OAM is built, so every move
+// animation keeps working in its own 1.0x space and composes with it. The sprite is drawn double-size affine with
+// its reserved matrix (even while the battle code has its affine mode off) and moved by yAdjust to keep its feet down.
+static EWRAM_DATA u16 sSpriteDisplayScale[MAX_SPRITES] = {0};
+static EWRAM_DATA u8 sSpriteDisplayMatrix[MAX_SPRITES] = {0};
+static EWRAM_DATA s8 sSpriteDisplayYAdjust[MAX_SPRITES] = {0};
+static EWRAM_DATA u64 sSpriteDisplayOwnsMatrix = 0;   // bit per sprite: the matrix was allocated for it (freed with it)
+static void ClearSpriteDisplayScale(u32 id);
+static EWRAM_DATA u16 sMatrixDisplayScale[OAM_MATRIX_COUNT] = {0};
 EWRAM_DATA bool8 gAffineAnimsDisabled = FALSE;
 
 void ResetSpriteData(void)
@@ -337,6 +347,8 @@ void BuildOamBuffer(void)
 
         if (sprite->oam.affineMode & ST_OAM_AFFINE_ON_MASK)
             matrices |= 1 << sprite->oam.matrixNum;
+        else if (index < MAX_SPRITES && sSpriteDisplayScale[index] != 0)
+            matrices |= 1 << sSpriteDisplayMatrix[index];   // realgen: drawn affine with its reserved matrix
 
         if (sprite->coordOffsetEnabled)
         {
@@ -398,6 +410,15 @@ void BuildOamBuffer(void)
         if (matrices & 1)
         {
             u32 base = 4 * i;
+            u32 s = sMatrixDisplayScale[i];
+            if (s != 0)
+            {
+                gMain.oamBuffer[base + 0].affineParam = ((s32)gOamMatrices[i].a << 8) / (s32)s;
+                gMain.oamBuffer[base + 1].affineParam = ((s32)gOamMatrices[i].b << 8) / (s32)s;
+                gMain.oamBuffer[base + 2].affineParam = ((s32)gOamMatrices[i].c << 8) / (s32)s;
+                gMain.oamBuffer[base + 3].affineParam = ((s32)gOamMatrices[i].d << 8) / (s32)s;
+                continue;
+            }
             gMain.oamBuffer[base + 0].affineParam = gOamMatrices[i].a;
             gMain.oamBuffer[base + 1].affineParam = gOamMatrices[i].b;
             gMain.oamBuffer[base + 2].affineParam = gOamMatrices[i].c;
@@ -614,6 +635,7 @@ void ResetOamMatrices(void)
     for (i = 0; i < OAM_MATRIX_COUNT; i++)
     {
         // set to identity matrix
+        sMatrixDisplayScale[i] = 0;
         gOamMatrices[i].a = 0x0100;
         gOamMatrices[i].b = 0x0000;
         gOamMatrices[i].c = 0x0000;
@@ -631,6 +653,9 @@ void SetOamMatrix(u8 matrixNum, u16 a, u16 b, u16 c, u16 d)
 
 void ResetSprite(struct Sprite *sprite)
 {
+    u32 id = sprite - gSprites;
+    if (id < MAX_SPRITES)
+        ClearSpriteDisplayScale(id);
     *sprite = sDummySprite;
 }
 
@@ -1479,6 +1504,7 @@ void FreeOamMatrix(u8 matrixNum)
     }
 
     gOamMatrixAllocBitmap &= ~bit;
+    sMatrixDisplayScale[matrixNum] = 0;
     SetOamMatrix(matrixNum, 0x100, 0, 0, 0x100);
 }
 
@@ -1636,6 +1662,15 @@ void FreeAllSpritePalettes(void)
         sSpritePaletteTags[i] = TAG_NONE;
 }
 
+u32 CountFreeSpritePalettes(void)
+{
+    u32 i, n = 0;
+    for (i = gReservedSpritePaletteCount; i < 16; i++)
+        if (sSpritePaletteTags[i] == TAG_NONE)
+            n++;
+    return n;
+}
+
 u32 LoadSpritePalette(const struct SpritePalette *palette)
 {
     u32 index = IndexOfSpritePaletteTag(palette->tag);
@@ -1741,8 +1776,80 @@ void SetSubspriteTables(struct Sprite *sprite, const struct SubspriteTable *subs
     sprite->subspriteMode = SUBSPRITES_ON;
 }
 
+static void ClearSpriteDisplayScale(u32 id)
+{
+    if (sSpriteDisplayScale[id] != 0)
+    {
+        sMatrixDisplayScale[sSpriteDisplayMatrix[id]] = 0;
+        if (sSpriteDisplayOwnsMatrix & (1ull << id))
+            FreeOamMatrix(sSpriteDisplayMatrix[id]);
+    }
+    sSpriteDisplayOwnsMatrix &= ~(1ull << id);
+    sSpriteDisplayScale[id] = 0;
+}
+
+u16 GetSpriteDisplayScale(u8 spriteId)
+{
+    return spriteId < MAX_SPRITES ? sSpriteDisplayScale[spriteId] : 0;
+}
+
+// matrixNum 0xFF: allocate a matrix for this sprite (freed when the sprite is destroyed or the scale cleared)
+void SetSpriteDisplayScale(u8 spriteId, u8 matrixNum, u16 scale, s8 yAdjust)
+{
+    bool32 owned = FALSE;
+    if (spriteId >= MAX_SPRITES)
+        return;
+    if (scale == 0x100)
+        scale = 0;
+    if (scale != 0 && sSpriteDisplayScale[spriteId] != 0 && matrixNum == 0xFF && (sSpriteDisplayOwnsMatrix & (1ull << spriteId)))
+    {
+        sSpriteDisplayScale[spriteId] = scale;      // keep the matrix it already owns
+        sSpriteDisplayYAdjust[spriteId] = yAdjust;
+        sMatrixDisplayScale[sSpriteDisplayMatrix[spriteId]] = scale;
+        return;
+    }
+    ClearSpriteDisplayScale(spriteId);
+    if (scale == 0)
+        return;
+    if (matrixNum == 0xFF)
+    {
+        if ((matrixNum = AllocOamMatrix()) == 0xFF)
+            return;
+        owned = TRUE;
+    }
+    if (matrixNum >= OAM_MATRIX_COUNT)
+        return;
+    if (owned)
+        sSpriteDisplayOwnsMatrix |= 1ull << spriteId;
+    sSpriteDisplayScale[spriteId] = scale;
+    sSpriteDisplayMatrix[spriteId] = matrixNum;
+    sSpriteDisplayYAdjust[spriteId] = yAdjust;
+    sMatrixDisplayScale[matrixNum] = scale;
+}
+
 bool8 AddSpriteToOamBuffer(struct Sprite *sprite, u8 *oamIndex)
 {
+    u32 id = sprite - gSprites;
+    if (id < MAX_SPRITES && sSpriteDisplayScale[id] != 0)   // drawn as one affine OAM (subsprite splits ignored)
+    {
+        struct OamData oam = sprite->oam;
+        if (oam.affineMode != ST_OAM_AFFINE_DOUBLE && oam.affineMode != ST_OAM_AFFINE_ERASE)
+        {
+            oam.x -= gOamDimensions[oam.shape][oam.size].width / 2;
+            oam.y -= gOamDimensions[oam.shape][oam.size].height / 2;
+            if (oam.affineMode == ST_OAM_AFFINE_OFF)
+            {
+                u32 m = sSpriteDisplayMatrix[id];
+                if (sSpriteDisplayOwnsMatrix & (1ull << id))   // its own matrix carries the h/v flip bits
+                    SetOamMatrix(m, (oam.matrixNum & ST_OAM_HFLIP) ? -0x100 : 0x100, 0, 0, (oam.matrixNum & ST_OAM_VFLIP) ? -0x100 : 0x100);
+                oam.matrixNum = m;
+            }
+            oam.affineMode = ST_OAM_AFFINE_DOUBLE;
+        }
+        sMatrixDisplayScale[oam.matrixNum] = sSpriteDisplayScale[id];
+        oam.y += sSpriteDisplayYAdjust[id];
+        return AddToOamBuffer(oamIndex, &oam, sprite->copyToObjWin);
+    }
     if (!sprite->subspriteTables || sprite->subspriteMode == SUBSPRITES_OFF)
         return AddToOamBuffer(oamIndex, &sprite->oam, sprite->copyToObjWin);
     else

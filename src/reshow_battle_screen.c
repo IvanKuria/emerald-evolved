@@ -15,6 +15,7 @@
 #include "constants/trainers.h"
 #include "battle_interface.h"
 #include "battle_anim.h"
+#include "battle_gfx_sfx_util.h"
 #include "data.h"
 
 // this file's functions
@@ -333,6 +334,7 @@ void CreateBattlerSprite(enum BattlerId battler)
             gSprites[gBattlerSpriteIds[battler]].callback = SpriteCallbackDummy;
             gSprites[gBattlerSpriteIds[battler]].data[0] = battler;
             gSprites[gBattlerSpriteIds[battler]].data[2] = species;
+            SetBattlerGeneticSize(battler);
 
             StartSpriteAnim(&gSprites[gBattlerSpriteIds[battler]], 0);
         }
@@ -373,6 +375,7 @@ void CreateBattlerSprite(enum BattlerId battler)
             gSprites[gBattlerSpriteIds[battler]].callback = SpriteCallbackDummy;
             gSprites[gBattlerSpriteIds[battler]].data[0] = battler;
             gSprites[gBattlerSpriteIds[battler]].data[2] = species;
+            SetBattlerGeneticSize(battler);
 
             StartSpriteAnim(&gSprites[gBattlerSpriteIds[battler]], 0);
         }
@@ -437,6 +440,7 @@ static void CreateCaughtMonSprite(void)
     gSprites[gBattlerSpriteIds[gBattlerTarget]].callback = SpriteCallbackDummy;
     gSprites[gBattlerSpriteIds[gBattlerTarget]].data[0] = gBattlerTarget;
     gSprites[gBattlerSpriteIds[gBattlerTarget]].data[2] = GetMonData(GetBattlerMon(gBattlerTarget), MON_DATA_SPECIES);
+    SetBattlerGeneticSize(gBattlerTarget);
 
     StartSpriteAnim(&gSprites[gBattlerSpriteIds[gBattlerTarget]], 0);
 

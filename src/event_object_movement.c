@@ -1,4 +1,6 @@
 #include "global.h"
+#include "genetics.h"
+#include "genetics_palette.h"
 #include "malloc.h"
 #include "battle_anim.h"
 #include "battle_pyramid.h"
@@ -201,6 +203,8 @@ static void InitSpriteForFigure8Anim(struct Sprite *);
 static bool8 AnimateSpriteInFigure8(struct Sprite *);
 enum Direction GetDirectionToFace(s16 x1, s16 y1, s16 x2, s16 y2);
 static u32 LoadDynamicFollowerPalette(enum Species species, bool32 shiny, bool32 female);
+static EWRAM_DATA u8 sFolSpriteId = 0, sFolPalNum = 0;   // Emerald Evolved follower genes (sprite id + 1), see MovementType_FollowPlayer
+static EWRAM_DATA u16 sFolScale = 0;
 static void FollowerSetGraphics(struct ObjectEvent *objEvent, enum Species species, bool32 shiny, bool32 female);
 static void ObjectEventSetGraphics(struct ObjectEvent *, const struct ObjectEventGraphicsInfo *);
 static void SpriteCB_VirtualObject(struct Sprite *);
@@ -2398,6 +2402,7 @@ void UpdateFollowingPokemon(void)
         objEvent->invisible = TRUE;
     }
     sprite->data[6] = 0; // set animation data
+    sFolSpriteId = 0;  // Emerald Evolved: the lead may have changed; re-read its genes
 }
 
 // Remove follower object. Idempotent.
@@ -5685,7 +5690,82 @@ static bool8 UpdateFollowerTransformEffect(struct ObjectEvent *objectEvent, stru
     return TRUE;
 }
 
-movement_type_def(MovementType_FollowPlayer, gMovementTypeFuncs_FollowPlayer)
+// Emerald Evolved: the follower in its genetic colours (its own palette) and genetic size (feet on the ground).
+// Re-applied only when its sprite, palette or display scale no longer match what was applied (map loads, menus,
+// lead changes), so this per-frame check is a few compares.
+#define FOLLOWER_GENE_PAL_TAG 0xE7B0
+#define FOLLOWER_MAX_SCALE    384   // 1.5x
+
+static void ApplyFollowerGenesIfStale(struct ObjectEvent *objEvent, struct Sprite *sprite)
+{
+    struct Pokemon *mon;
+    struct Genome g;
+    u32 spriteId = sprite - gSprites, scale, h;
+    u8 coat;
+    s32 hue;
+
+    if (objEvent->localId != OBJ_EVENT_ID_FOLLOWER)
+        return;
+    if (spriteId + 1 == sFolSpriteId && sprite->oam.paletteNum == sFolPalNum && GetSpriteDisplayScale(spriteId) == sFolScale)
+        return;
+    if ((mon = GetFirstLiveMon()) == NULL)
+        return;
+    GetBoxMonGenome(&mon->box, &g);
+    coat = GenomeCoat(&g);
+    hue = GenomeHueShift(&g);
+    if (coat != COAT_NORMAL || hue != 0)
+    {
+        u32 base = LoadDynamicFollowerPalette(OW_SPECIES(objEvent), OW_SHINY(objEvent), OW_FEMALE(objEvent));
+        if (base < 16)
+        {
+            u16 pal[16];
+            struct SpritePalette sp = {pal, FOLLOWER_GENE_PAL_TAG};
+            u32 index;
+            CpuCopy16(&gPlttBufferUnfaded[OBJ_PLTT_ID(base)], pal, sizeof(pal));
+            ApplyGenesTo16(pal, coat, hue);
+            sprite->oam.paletteNum = base;
+            FreeSpritePaletteByTag(FOLLOWER_GENE_PAL_TAG);
+            if ((index = LoadSpritePalette(&sp)) < 16)
+            {
+                sprite->oam.paletteNum = index;
+                if (gWeatherPtr->currWeather != WEATHER_FOG_HORIZONTAL)
+                    UpdateSpritePaletteWithWeather(index, FALSE);
+            }
+        }
+    }
+    else if (sprite->oam.paletteNum == IndexOfSpritePaletteTag(FOLLOWER_GENE_PAL_TAG))
+    {
+        sprite->oam.paletteNum = LoadDynamicFollowerPalette(OW_SPECIES(objEvent), OW_SHINY(objEvent), OW_FEMALE(objEvent));
+        FreeSpritePaletteByTag(FOLLOWER_GENE_PAL_TAG);
+    }
+    scale = GenomeSizeScale(&g, GetMonData(mon, MON_DATA_PERSONALITY));
+    if (scale > FOLLOWER_MAX_SCALE)   // battle shows up to 2.0x; the overworld follower stops at 1.5x
+        scale = FOLLOWER_MAX_SCALE;
+    h = gOamDimensions[sprite->oam.shape][sprite->oam.size].height;
+    SetSpriteDisplayScale(spriteId, 0xFF, scale, -(((s32)scale - 0x100) * (s32)(h / 2)) / 0x100);
+    sFolSpriteId = spriteId + 1;
+    sFolPalNum = sprite->oam.paletteNum;
+    sFolScale = GetSpriteDisplayScale(spriteId);
+}
+
+static u8 MovementType_FollowPlayer_callback(struct ObjectEvent *, struct Sprite *);
+void MovementType_FollowPlayer(struct Sprite *sprite)
+{
+    ApplyFollowerGenesIfStale(&gObjectEvents[sprite->sObjEventId], sprite);
+    UpdateObjectEventCurrentMovement(&gObjectEvents[sprite->sObjEventId], sprite, MovementType_FollowPlayer_callback);
+    // A scaled-up follower stands one tile from the player but reaches over it, so it is drawn behind the player
+    // even from the south, where y-sorting would put it in front.
+    if (GetSpriteDisplayScale(sprite - gSprites) > 0x100 && gPlayerAvatar.spriteId < MAX_SPRITES)
+    {
+        u8 behind = gSprites[gPlayerAvatar.spriteId].subpriority + 1;
+        if (behind != 0 && sprite->subpriority < behind)
+            sprite->subpriority = behind;
+    }
+}
+static u8 MovementType_FollowPlayer_callback(struct ObjectEvent *objectEvent, struct Sprite *sprite)
+{
+    return gMovementTypeFuncs_FollowPlayer[sprite->sTypeFuncId](objectEvent, sprite);
+}
 
 bool8 MovementType_FollowPlayer_Shadow(struct ObjectEvent *objectEvent, struct Sprite *sprite)
 {

@@ -11,6 +11,7 @@ void InitAndLaunchChosenStatusAnimation(enum BattlerId battler, bool32 isVolatil
 bool8 TryHandleLaunchBattleTableAnimation(u8 activeBattlerId, u8 attacker, u8 target, u8 tableId, u16 argument);
 void InitAndLaunchSpecialAnimation(enum BattlerId activeBattlerId, enum BattlerId attacker, enum BattlerId target, u8 tableId);
 bool8 IsBattleSEPlaying(enum BattlerId battler);
+void SetBattlerGeneticSize(enum BattlerId battler);
 void BattleLoadMonSpriteGfx(struct Pokemon *mon, enum BattlerId battler);
 void DecompressGhostFrontPic(enum BattlerId battler);
 void BattleGfxSfxDummy2(enum Species species);

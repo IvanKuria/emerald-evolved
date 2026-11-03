@@ -2052,6 +2052,7 @@ void StartSendOutAnim(enum BattlerId battler, bool32 dontClearTransform, bool32 
 
     gSprites[gBattlerSpriteIds[battler]].data[0] = battler;
     gSprites[gBattlerSpriteIds[battler]].data[2] = species;
+    SetBattlerGeneticSize(battler);
     gSprites[gBattlerSpriteIds[battler]].oam.paletteNum = battler;
     StartSpriteAnim(&gSprites[gBattlerSpriteIds[battler]], 0);
     gSprites[gBattlerSpriteIds[battler]].invisible = TRUE;
@@ -2390,6 +2391,7 @@ void BtlController_HandleLoadMonSprite(enum BattlerId battler)
     gSprites[gBattlerSpriteIds[battler]].x2 = -DISPLAY_WIDTH;
     gSprites[gBattlerSpriteIds[battler]].data[0] = battler;
     gSprites[gBattlerSpriteIds[battler]].data[2] = species;
+    SetBattlerGeneticSize(battler);
     gSprites[gBattlerSpriteIds[battler]].oam.paletteNum = battler;
     StartSpriteAnim(&gSprites[gBattlerSpriteIds[battler]], 0);
 

@@ -1,4 +1,5 @@
 #include "global.h"
+#include "genetics_palette.h"
 #include "graphics.h"
 #include "mail.h"
 #include "palette.h"
@@ -172,6 +173,8 @@ u8 CreateMonIconIsEgg(enum Species species, void (*callback)(struct Sprite *), s
 #endif
 
     spriteId = CreateMonIconSprite(&iconTemplate, x, y, subpriority);
+    if (!isEgg && species <= NUM_SPECIES)   // Emerald Evolved: the icon in this Pokémon's genetic colours
+        SetMonIconGenePalette(spriteId, species, personality, iconTemplate.paletteTag - POKE_ICON_BASE_PAL_TAG, iconTemplate.image);
 
     UpdateMonIconFrame(&gSprites[spriteId]);
 

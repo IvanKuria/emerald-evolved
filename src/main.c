@@ -22,6 +22,7 @@
 #include "text.h"
 #include "intro.h"
 #include "main.h"
+#include "evo_test.h"
 #include "trainer_hill.h"
 #include "test_runner.h"
 #include "constants/rgb.h"
@@ -136,6 +137,9 @@ void AgbMainLoop(void)
     for (;;)
     {
         ReadKeys();
+#if EVO_TEST
+        EvoTest_Frame();
+#endif
 
         if (gSoftResetDisabled == FALSE
          && JOY_HELD_RAW(A_BUTTON)
