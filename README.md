@@ -56,7 +56,7 @@ To be honest about it: in real life this takes thousands of years, so mutations 
 
 - The genes live in parts of the save the game doesn't use, so Tera, Dynamax and hyper training are switched off, and IVs come from genes (7 possible values per stat).
 - The PC box can only show about 4 recolored Pokémon at once. The rest show their normal colors in the box, but they're still their real colors everywhere else.
-- Contest and trade screens use the normal colors.
+- The genetic colors are hooked into the contest and trade screens too, but I haven't tested those yet.
 
 ## Building from source
 
