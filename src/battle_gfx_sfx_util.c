@@ -636,7 +636,7 @@ void SetBattlerGeneticSize(enum BattlerId battler)
         return;
     species = GetMonData(mon, MON_DATA_SPECIES);
     GetBoxMonGenome(&mon->box, &g);
-    scale = GenomeSizeScale(&g, GetMonData(mon, MON_DATA_PERSONALITY));
+    scale = GenomeDisplayScale(&g, GetMonData(mon, MON_DATA_PERSONALITY), 512);
     bottom = MON_PIC_HEIGHT / 2 - (IsOnPlayerSide(battler) ? gSpeciesInfo[species].backPicYOffset : gSpeciesInfo[species].frontPicYOffset);
     matrixNum = (gSprites[spriteId].oam.affineMode & ST_OAM_AFFINE_ON_MASK) ? gSprites[spriteId].oam.matrixNum
                                                                             : gBattleSpritesDataPtr->healthBoxesData[battler].matrixNum;
