@@ -235,6 +235,19 @@ u32 GenomeSizeScale(const struct Genome *g, u32 personality)
     return scale > 512 ? 512 : scale;
 }
 
+// The size a sprite is DRAWN at. The GBA scales sprites by repeating pixels, and in-between sizes (1.07x) double a
+// stray row/column every few pixels, which looks lumpy. Only sizes whose inverse (256/scale) is a whole number repeat
+// pixels in an even pattern: 1x, 1.33x (3 -> 4 px), 1.6x (5 -> 8 px), 2x. The summary HEIGHT stays exact.
+u32 GenomeDisplayScale(const struct Genome *g, u32 personality, u32 maxScale)
+{
+    static const u16 steps[] = {256, 341, 409, 512};   // 65536 / step truncates to 256, 192, 160, 128 exactly
+    u32 s = GenomeSizeScale(g, personality), i, best = 0;
+    for (i = 1; i < sizeof(steps) / sizeof(steps[0]); i++)
+        if (steps[i] <= maxScale && s * s >= (u32)steps[i - 1] * steps[i])   // nearest step on a log scale
+            best = i;
+    return steps[best];
+}
+
 u32 GenomeHeightCm(const struct Genome *g, u32 personality, u32 speciesHeightDm)
 {
     return (speciesHeightDm * 10 * GenomeSizeScale(g, personality) + 128) / 256;
