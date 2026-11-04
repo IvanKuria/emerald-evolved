@@ -35,7 +35,7 @@ It's built on [pokeemerald-expansion](https://github.com/rh-hideout/pokeemerald-
 1. Get your own **Pokémon Emerald (USA, Europe)** ROM, dumped from your own cartridge. Its SHA-1 has to be `f3ae088181bf583e55daf962a92bb46f4f1d07b7`.
 2. Download `emerald-evolved.bps` from the [releases page](https://github.com/IvanKuria/emerald-evolved/releases/latest).
 3. Patch it with [Rom Patcher JS](https://www.marcrobledo.com/RomPatcher.js/) (works on phones too).
-4. Play it in any GBA emulator. The patched game's SHA-1 should be `2e6997928f4186bc3debbf7bf3019455699861ca`.
+4. Play it in any GBA emulator. The patched game's SHA-1 should be `bbf39cba342b4b4edae2b0f40661bf3fa3dbfb67`.
 
 Start a new game. Saves from normal Emerald or from my Real Genetics mod won't work.
 
