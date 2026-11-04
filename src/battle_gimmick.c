@@ -73,6 +73,10 @@ bool32 ShouldTrainerBattlerUseGimmick(enum BattlerId battler, enum Gimmick gimmi
     if (IsOnPlayerSide(battler) && !((gBattleTypeFlags & BATTLE_TYPE_MULTI) && GetBattlerPosition(battler) == B_POSITION_PLAYER_RIGHT))
         return TRUE;
 
+    // Emerald Evolved: trainers never Dynamax or Terastallize. The party loader marks "don't" with dynamax level 15 and
+    // tera type Mystery, but those fields hold the genome in this hack and read back as 0 / the personality type.
+    return FALSE;
+
     // When reading trainer party data, we load invalid values in struct Pokemon to indicate the gimmick should not be used
     struct Pokemon *mon = GetBattlerMon(battler);
     if (gimmick == GIMMICK_TERA && GetMonData(mon, MON_DATA_TERA_TYPE) != TYPE_MYSTERY)
