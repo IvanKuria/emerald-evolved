@@ -5738,9 +5738,7 @@ static void ApplyFollowerGenesIfStale(struct ObjectEvent *objEvent, struct Sprit
         sprite->oam.paletteNum = LoadDynamicFollowerPalette(OW_SPECIES(objEvent), OW_SHINY(objEvent), OW_FEMALE(objEvent));
         FreeSpritePaletteByTag(FOLLOWER_GENE_PAL_TAG);
     }
-    scale = GenomeSizeScale(&g, GetMonData(mon, MON_DATA_PERSONALITY));
-    if (scale > FOLLOWER_MAX_SCALE)   // battle shows up to 2.0x; the overworld follower stops at 1.5x
-        scale = FOLLOWER_MAX_SCALE;
+    scale = GenomeDisplayScale(&g, GetMonData(mon, MON_DATA_PERSONALITY), FOLLOWER_MAX_SCALE);   // battle up to 2x, overworld 1.33x
     h = gOamDimensions[sprite->oam.shape][sprite->oam.size].height;
     SetSpriteDisplayScale(spriteId, 0xFF, scale, -(((s32)scale - 0x100) * (s32)(h / 2)) / 0x100);
     sFolSpriteId = spriteId + 1;
