@@ -10,6 +10,9 @@
 #include "battle.h"
 #include "battle_anim.h"
 #include "battle_setup.h"
+#include "battle_gimmick.h"
+#include "battle_dynamax.h"
+#include "battle_terastal.h"
 #include "palette.h"
 #include "event_data.h"
 #include "random.h"
@@ -788,6 +791,15 @@ static void Battle(void)
     case 1:
     case 11:
         sTimer++;
+        if (sTimer == 60 * 6)   // v1.0.1: the opponent must never Dynamax or Terastallize (1.0.0: every trainer could)
+        {
+            u32 opp = GetBattlerAtPosition(B_POSITION_OPPONENT_LEFT);
+            LogStr("  opponent gimmicks: dynamax "); LogNum(ShouldTrainerBattlerUseGimmick(opp, GIMMICK_DYNAMAX));
+            LogStr(" tera "); LogNum(ShouldTrainerBattlerUseGimmick(opp, GIMMICK_TERA));
+            LogStr(" canDynamax "); LogNum(CanDynamax(opp)); LogStr(" canTera "); LogNum(CanTerastallize(opp)); LogStr("\n");
+            Check(!ShouldTrainerBattlerUseGimmick(opp, GIMMICK_DYNAMAX) && !ShouldTrainerBattlerUseGimmick(opp, GIMMICK_TERA)
+                  && !CanDynamax(opp) && !CanTerastallize(opp), "opponent can't Dynamax or Terastallize");
+        }
         if (sTimer < 60 * 12 && (sTimer % 90) == 0) Press(B_BUTTON);
         if (sTimer < 60 * 12) break;
         t = sTimer - 60 * 12;
