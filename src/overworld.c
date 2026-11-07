@@ -1,5 +1,6 @@
 #include "global.h"
 #include "evo_test.h"
+#include "breeder_start.h"
 #include "overworld.h"
 #include "battle_pyramid.h"
 #include "battle_setup.h"
@@ -1944,9 +1945,18 @@ void CB2_NewGame(void)
     else
         gFieldCallback = ExecuteTruckSequence;
     gFieldCallback2 = NULL;
+    if (gBreederStart)
+    {
+        gBreederStart = FALSE;
+        BreederStart_NewGame();
+        gFieldCallback = FieldCB_BreederStart;
+    }
 #if EVO_TEST
-    EvoTest_NewGame();
-    gFieldCallback = NULL;
+    else
+    {
+        EvoTest_NewGame();
+        gFieldCallback = NULL;
+    }
 #endif
     DoMapLoadLoop(&gMain.state);
     SetFieldVBlankCallback();

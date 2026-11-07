@@ -86,6 +86,7 @@ gSpecials::
 	def_special DoPokeNews
 	def_special GetRandomActiveShowIdx
 	def_special GetSelectedTVShow
+	def_special BreederChooseStarter
 	def_special InterviewBefore
 	def_special InterviewAfter
 	def_special IsLeadMonNicknamedOrNotEnglish

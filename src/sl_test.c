@@ -39,6 +39,10 @@ struct SlTestMailbox
     u32 frame;        // 16
     u32 sc[3];        // 20 script ptr, native ptr, mode | depth<<8 | status<<16
     u32 unit[4];      // 32 scenario 0x400 unit results
+    u8 mapGroup, mapNum, partyCount, pad2;   // 48
+    u16 species[3];   // 52
+    u8 level[3];      // 58
+    u8 gender[3];     // 61
 };
 void SlTest_ScriptState(u32 *out);
 EWRAM_DATA struct SlTestMailbox gSlTest = {0};
@@ -167,6 +171,19 @@ void SlTest_Frame(void)
     gSlTest.locked = ArePlayerFieldControlsLocked();
     gSlTest.fieldCb = gMain.callback2 == CB2_Overworld && gMain.callback1 == CB1_Overworld;
     gSlTest.follower = GetFollowerObject() != NULL;
+    if (gSaveBlock1Ptr)
+    {
+        u32 i;
+        gSlTest.mapGroup = gSaveBlock1Ptr->location.mapGroup;
+        gSlTest.mapNum = gSaveBlock1Ptr->location.mapNum;
+        gSlTest.partyCount = gPlayerPartyCount;
+        for (i = 0; i < 3; i++)
+        {
+            gSlTest.species[i] = GetMonData(&gPlayerParty[i], MON_DATA_SPECIES);
+            gSlTest.level[i] = GetMonData(&gPlayerParty[i], MON_DATA_LEVEL);
+            gSlTest.gender[i] = GetMonGender(&gPlayerParty[i]);
+        }
+    }
     gSlTest.pad = (GetFirstLiveMon() != NULL) | (gPlayerPartyCount << 1);
     if (gSlTest.phase == 2 && !gSlTest.follower && gSlTest.fieldCb && !(gSlTest.scenario & 0x100) && (gSlTest.frame & 63) == 0)
         UpdateFollowingPokemon();

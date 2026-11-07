@@ -14,6 +14,7 @@
 #include "link.h"
 #include "main.h"
 #include "main_menu.h"
+#include "breeder_start.h"
 #include "menu.h"
 #include "list_menu.h"
 #include "mystery_event_menu.h"
@@ -233,6 +234,9 @@ static void Task_NewGameBirchSpeech_SlidePlatformAway2(u8);
 static void Task_NewGameBirchSpeech_ReshowBirchLotad(u8);
 static void Task_NewGameBirchSpeech_WaitForSpriteFadeInAndTextPrinter(u8);
 static void Task_NewGameBirchSpeech_AreYouReady(u8);
+static void Task_NewGameBirchSpeech_CreateBreederYesNo(u8);
+static void Task_NewGameBirchSpeech_ProcessBreederYesNo(u8);
+static const u8 sText_Birch_BreederStart[] = _("Oh, one more thing!\pDo you want to skip ahead and start\nat the POKéMON DAY CARE, so you can\pbreed POKéMON right away?");
 static void Task_NewGameBirchSpeech_ShrinkPlayer(u8);
 static void SpriteCB_MovePlayerDownWhileShrinking(struct Sprite *);
 static void Task_NewGameBirchSpeech_WaitForPlayerShrink(u8);
@@ -1301,6 +1305,7 @@ static void HighlightSelectedMainMenuItem(enum PartyMenuType menuType, u8 select
 
 static void Task_NewGameBirchSpeech_Init(u8 taskId)
 {
+    gBreederStart = FALSE;
     SetGpuReg(REG_OFFSET_DISPCNT, 0);
     SetGpuReg(REG_OFFSET_DISPCNT, DISPCNT_OBJ_ON | DISPCNT_OBJ_1D_MAP);
     InitBgFromTemplate(&sBirchBgTemplate);
@@ -1728,14 +1733,38 @@ static void Task_NewGameBirchSpeech_WaitForSpriteFadeInAndTextPrinter(u8 taskId)
         gSprites[gTasks[taskId].tLotadSpriteId].oam.objMode = ST_OAM_OBJ_NORMAL;
         if (!RunTextPrintersAndIsPrinter0Active())
         {
-            gSprites[gTasks[taskId].tBirchSpriteId].oam.objMode = ST_OAM_OBJ_BLEND;
-            gSprites[gTasks[taskId].tLotadSpriteId].oam.objMode = ST_OAM_OBJ_BLEND;
-            NewGameBirchSpeech_StartFadeOutTarget1InTarget2(taskId, 2);
-            NewGameBirchSpeech_StartFadePlatformIn(taskId, 1);
-            gTasks[taskId].tTimer = 64;
-            gTasks[taskId].func = Task_NewGameBirchSpeech_AreYouReady;
+            // Emerald Evolved: offer the Breeder start
+            NewGameBirchSpeech_ClearWindow(0);
+            StringExpandPlaceholders(gStringVar4, sText_Birch_BreederStart);
+            AddTextPrinterForMessage(TRUE);
+            gTasks[taskId].func = Task_NewGameBirchSpeech_CreateBreederYesNo;
         }
     }
+}
+
+static void Task_NewGameBirchSpeech_CreateBreederYesNo(u8 taskId)
+{
+    if (!RunTextPrintersAndIsPrinter0Active())
+    {
+        CreateYesNoMenuParameterized(2, 1, 0xF3, 0xDF, 2, 15);
+        gTasks[taskId].func = Task_NewGameBirchSpeech_ProcessBreederYesNo;
+    }
+}
+
+static void Task_NewGameBirchSpeech_ProcessBreederYesNo(u8 taskId)
+{
+    s8 choice = Menu_ProcessInputNoWrapClearOnChoose();
+    if (choice == MENU_NOTHING_CHOSEN)
+        return;
+    PlaySE(SE_SELECT);
+    gBreederStart = (choice == 0);
+    NewGameBirchSpeech_ClearWindow(0);
+    gSprites[gTasks[taskId].tBirchSpriteId].oam.objMode = ST_OAM_OBJ_BLEND;
+    gSprites[gTasks[taskId].tLotadSpriteId].oam.objMode = ST_OAM_OBJ_BLEND;
+    NewGameBirchSpeech_StartFadeOutTarget1InTarget2(taskId, 2);
+    NewGameBirchSpeech_StartFadePlatformIn(taskId, 1);
+    gTasks[taskId].tTimer = 64;
+    gTasks[taskId].func = Task_NewGameBirchSpeech_AreYouReady;
 }
 
 static void Task_NewGameBirchSpeech_AreYouReady(u8 taskId)

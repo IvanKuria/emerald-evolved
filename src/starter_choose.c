@@ -14,6 +14,7 @@
 #include "sound.h"
 #include "sprite.h"
 #include "starter_choose.h"
+#include "breeder_start.h"
 #include "strings.h"
 #include "task.h"
 #include "text.h"
@@ -32,6 +33,8 @@
 
 #define TAG_POKEBALL_SELECT 0x1000
 #define TAG_STARTER_CIRCLE  0x1001
+
+static const u8 sText_BreederPickPartner[] = _("Which POKéMON will be your partner?\nPick one to travel with!");
 
 static void CB2_StarterChoose(void);
 static void ClearStarterLabel(void);
@@ -474,7 +477,7 @@ static void Task_StarterChoose(u8 taskId)
 {
     CreateStarterPokemonLabel(gTasks[taskId].tStarterSelection);
     DrawStdFrameWithCustomTileAndPalette(0, FALSE, 0x2A8, 0xD);
-    AddTextPrinterParameterized(0, FONT_NORMAL, gText_BirchInTrouble, 0, 1, 0, NULL);
+    AddTextPrinterParameterized(0, FONT_NORMAL, gBreederChoosingStarter ? sText_BreederPickPartner : gText_BirchInTrouble, 0, 1, 0, NULL);
     PutWindowTilemap(0);
     ScheduleBgCopyTilemapToVram(0);
     gTasks[taskId].func = Task_HandleStarterChooseInput;

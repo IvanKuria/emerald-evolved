@@ -39,6 +39,8 @@ It's built on [pokeemerald-expansion](https://github.com/rh-hideout/pokeemerald-
 
 Start a new game. Saves from normal Emerald or from my Real Genetics mod won't work.
 
+**Want to breed right away?** At the end of Prof. Birch's intro he asks if you want to skip ahead. Say yes and you start outside the Day Care on Route 117 (story at Mauville, two badges), pick your starter there, and get a boy and a girl Eevee to breed. Say no for the normal game.
+
 ## The rules
 
 - **Mutation.** Every time a Pokémon passes a gene to its egg there's a tiny chance it changes.
