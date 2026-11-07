@@ -2955,19 +2955,23 @@ static void GetRandomWordFromShow(TVShow *show)
 {
     u8 i;
 
+    u8 tries;
+
     i = Random() % ARRAY_COUNT(show->fanclubLetter.words);
 
     // From random point, get first non-empty word
-    while (TRUE)
+    // Emerald Evolved: give up after one pass, so a show with no words (corrupt or mixed-in data) can't hang the TV
+    for (tries = 0; tries < ARRAY_COUNT(show->fanclubLetter.words); tries++, i++)
     {
-        if (i == ARRAY_COUNT(show->fanclubLetter.words))
+        if (i >= ARRAY_COUNT(show->fanclubLetter.words))
             i = 0;
-
         if (show->fanclubLetter.words[i] != EC_EMPTY_WORD)
-            break;
-        i++;
+        {
+            CopyEasyChatWord(gStringVar3, show->fanclubLetter.words[i]);
+            return;
+        }
     }
-    CopyEasyChatWord(gStringVar3, show->fanclubLetter.words[i]);
+    gStringVar3[0] = EOS;
 }
 
 static u8 GetRandomNameRaterStateFromName(TVShow *show)

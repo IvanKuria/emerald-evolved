@@ -4,6 +4,7 @@
 #include "pokemon.h"
 #include "random.h"
 #include "roamer.h"
+#include "genetics.h"
 
 // Despite having a variable to track it, the roamer is
 // hard-coded to only ever be in map group 0
@@ -250,6 +251,16 @@ void CreateRoamerMonInstance(u32 roamerIndex)
     struct Pokemon *mon = &gParties[B_TRAINER_OPPONENT_A][0];
     ZeroEnemyPartyMons();
     CreateMonWithIVsPersonality(mon, ROAMER(roamerIndex)->species, ROAMER(roamerIndex)->level, ROAMER(roamerIndex)->ivs, ROAMER(roamerIndex)->personality);
+    {   // Emerald Evolved: the roamer's genome comes from its saved IVs and personality, so it looks the same every time
+        struct Genome g;
+        u8 ivs[NUM_STATS];
+        u32 s;
+        for (s = 0; s < NUM_STATS; s++)
+            ivs[s] = (ROAMER(roamerIndex)->ivs >> (5 * s)) & MAX_IV_MASK;
+        SynthesizeLegacyGenome(&g, ivs, ROAMER(roamerIndex)->shiny, ROAMER(roamerIndex)->personality);
+        SetBoxMonGenome(&mon->box, &g);
+        CalculateMonStats(mon);
+    }
     SetMonData(mon, MON_DATA_STATUS, &status);
     SetMonData(mon, MON_DATA_HP, &ROAMER(roamerIndex)->hp);
     SetMonData(mon, MON_DATA_COOL, &ROAMER(roamerIndex)->cool);

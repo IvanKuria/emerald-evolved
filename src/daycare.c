@@ -979,14 +979,12 @@ static enum Species DetermineEggSpeciesAndParentSlots(struct DayCare *daycare, u
     if (GetClonedParentSlot(daycare) >= 0 && (eggSpecies == SPECIES_NIDORAN_F || eggSpecies == SPECIES_NIDORAN_M
                                             || eggSpecies == SPECIES_ILLUMISE || eggSpecies == SPECIES_VOLBEAT))
         ; // realgen: a Ditto egg is a clone, so it keeps the parent's sex and therefore its species
-    else if (eggSpecies == SPECIES_NIDORAN_F && daycare->offspringPersonality & EGG_GENDER_MALE)
-        eggSpecies = SPECIES_NIDORAN_M;
-    else if (eggSpecies == SPECIES_ILLUMISE && daycare->offspringPersonality & EGG_GENDER_MALE)
-        eggSpecies = SPECIES_VOLBEAT;
-    else if (P_NIDORAN_M_DITTO_BREED >= GEN_5 && eggSpecies == SPECIES_NIDORAN_M && !(daycare->offspringPersonality & EGG_GENDER_MALE))
-        eggSpecies = SPECIES_NIDORAN_F;
-    else if (P_NIDORAN_M_DITTO_BREED >= GEN_5 && eggSpecies == SPECIES_VOLBEAT && !(daycare->offspringPersonality & EGG_GENDER_MALE))
-        eggSpecies = SPECIES_ILLUMISE;
+    // Emerald Evolved: offspringPersonality is never written in expansion 1.17.2 (#10845), so these were always the
+    // female line; pick the line 50/50 instead (upstream fix: PR #10846)
+    else if (eggSpecies == SPECIES_NIDORAN_F || eggSpecies == SPECIES_NIDORAN_M)
+        eggSpecies = (Random() & 1) ? SPECIES_NIDORAN_M : SPECIES_NIDORAN_F;
+    else if (eggSpecies == SPECIES_ILLUMISE || eggSpecies == SPECIES_VOLBEAT)
+        eggSpecies = (Random() & 1) ? SPECIES_VOLBEAT : SPECIES_ILLUMISE;
     else if (eggSpecies == SPECIES_MANAPHY)
         eggSpecies = SPECIES_PHIONE;
     else if (GET_BASE_SPECIES_ID(eggSpecies) == SPECIES_ROTOM)

@@ -915,7 +915,9 @@ void SetBoxMonIVs(struct BoxPokemon *mon, u8 fixedIV)
         return;
     }
 
-    return; // realgen: random IVs are the genome's IV loci (set in CreateBoxMon)
+    // realgen: random IVs are the genome's IV loci (set in CreateBoxMon); legendaries still get their perfect IVs
+    SetBoxMonPerfectIVs(mon, gSpeciesInfo[GetBoxMonData(mon, MON_DATA_SPECIES)].perfectIVCount);
+    return;
     u32 iv;
     u32 ivRandom = Random32();
     enum Species species = GetBoxMonData(mon, MON_DATA_SPECIES);

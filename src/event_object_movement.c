@@ -5706,6 +5706,14 @@ static void ApplyFollowerGenesIfStale(struct ObjectEvent *objEvent, struct Sprit
 
     if (objEvent->localId != OBJ_EVENT_ID_FOLLOWER)
         return;
+    if (objEvent->heldMovementActive
+     && (objEvent->movementActionId == MOVEMENT_ACTION_ENTER_POKEBALL || objEvent->movementActionId == MOVEMENT_ACTION_EXIT_POKEBALL))
+    {
+        sFolSpriteId = 0;   // the ball / white flash owns the palette now; re-apply the genes once it's done
+        if (GetSpriteDisplayScale(spriteId) != 0x100 && GetSpriteDisplayScale(spriteId) != 0)
+            SetSpriteDisplayScale(spriteId, 0xFF, 0x100, 0);   // the ball is drawn at 1x
+        return;
+    }
     if (spriteId + 1 == sFolSpriteId && sprite->oam.paletteNum == sFolPalNum && GetSpriteDisplayScale(spriteId) == sFolScale)
         return;
     if ((mon = GetFirstLiveMon()) == NULL)
@@ -5728,6 +5736,7 @@ static void ApplyFollowerGenesIfStale(struct ObjectEvent *objEvent, struct Sprit
             if ((index = LoadSpritePalette(&sp)) < 16)
             {
                 sprite->oam.paletteNum = index;
+                FieldEffectFreePaletteIfUnused(base);   // the species palette was only the template; reloaded on demand
                 if (gWeatherPtr->currWeather != WEATHER_FOG_HORIZONTAL)
                     UpdateSpritePaletteWithWeather(index, FALSE);
             }

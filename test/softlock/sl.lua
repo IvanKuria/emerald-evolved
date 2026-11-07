@@ -20,6 +20,15 @@ callbacks:add("frame", function()
     if emu:read32(MAILBOX) == 0x54534C53 and r8(6) == 2 then st, t = "settle", 0 end
     if emu:currentFrame() > 20000 then done("ERROR", "never-reached-field") end
   elseif st == "settle" then
+    if SCENARIO >= 1024 then
+      if emu:read32(MAILBOX + 44) >= 256 then
+        emu:screenshot(SHOT)
+        io.stdout:write(string.format("UNIT legendary_min_perfect_ivs=%d roamer_same=%d free_pal_before=%d free_pal_after=%d follower=%d\n",
+          emu:read32(MAILBOX + 32), emu:read32(MAILBOX + 36), emu:read32(MAILBOX + 40), emu:read32(MAILBOX + 44) - 256, r8(10)))
+        io.stdout:flush(); os.exit(0)
+      end
+      return
+    end
     if t == 40 then io.stdout:write(string.format("settle follower=%d dbg=%d x=%d y=%d\n", r8(10), r8(11), r16s(12), r16s(14))); emu:screenshot((SHOT:gsub("%.png$", "_start.png"))) end
     if t > 40 then st, t = "face", 0 end
   elseif st == "face" then
