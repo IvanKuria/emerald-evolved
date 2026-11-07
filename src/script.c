@@ -746,3 +746,12 @@ void SetWalkingIntoSignVars(void)
     // gWalkAwayFromSignInhibitTimer = 6;
     // sMsgBoxIsCancelable = TRUE;
 }
+
+#if SL_TEST
+void SlTest_ScriptState(u32 *out)
+{
+    out[0] = (u32)sGlobalScriptContext.scriptPtr;
+    out[1] = (u32)sGlobalScriptContext.nativePtr;
+    out[2] = sGlobalScriptContext.mode | (sGlobalScriptContext.stackDepth << 8) | (sGlobalScriptContextStatus << 16);
+}
+#endif

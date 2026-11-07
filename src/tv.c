@@ -3982,7 +3982,8 @@ void SanitizeTVShowLocationsForRuby(TVShow *shows)
 // gSpecialVar_0x8004 here is set from GetRandomActiveShowIdx in EventScript_TryDoTVShow
 void DoTVShow(void)
 {
-    if (gSaveBlock1Ptr->tvShows[gSpecialVar_0x8004].common.active)
+    gSpecialVar_Result = TRUE;   // Emerald Evolved: an empty or unknown slot ends the show instead of looping forever
+    if (gSpecialVar_0x8004 < TV_SHOWS_COUNT && gSaveBlock1Ptr->tvShows[gSpecialVar_0x8004].common.active)
     {
         switch (gSaveBlock1Ptr->tvShows[gSpecialVar_0x8004].common.kind)
         {

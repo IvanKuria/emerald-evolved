@@ -111,8 +111,12 @@ HEADLESSELF := $(ROM_NAME:.gba=-test-headless.elf)
 # Pick our active variables
 ROM := $(ROM_NAME)
 EVO_TEST ?= 0
+SL_TEST ?= 0
 ifeq ($(EVO_TEST),1)
   ROM := $(FILE_NAME)_evotest.gba
+endif
+ifeq ($(SL_TEST),1)
+  ROM := $(FILE_NAME)_sltest.gba
 endif
 ifeq ($(TESTELF),$(MAKECMDGOALS))
   TEST := 1
@@ -130,6 +134,9 @@ ifeq ($(RELEASE),1)
 endif
 ifeq ($(EVO_TEST),1)
   OBJ_DIR := $(BUILD_DIR)/evotest
+endif
+ifeq ($(SL_TEST),1)
+  OBJ_DIR := $(BUILD_DIR)/sltest
 endif
 ELF := $(ROM:.gba=.elf)
 MAP := $(ROM:.gba=.map)
@@ -163,7 +170,7 @@ O_LEVEL ?= g
 else
 O_LEVEL ?= 2
 endif
-CPPFLAGS := $(INCLUDE_CPP_ARGS) -Wno-trigraphs -DEVO_TEST=$(EVO_TEST) -DMODERN=1 -DTESTING=$(TEST) -D$(GAME_VERSION) -std=gnu17
+CPPFLAGS := $(INCLUDE_CPP_ARGS) -Wno-trigraphs -DEVO_TEST=$(EVO_TEST) -DSL_TEST=$(SL_TEST) -DMODERN=1 -DTESTING=$(TEST) -D$(GAME_VERSION) -std=gnu17
 ifeq ($(RELEASE),1)
 	override CPPFLAGS += -DRELEASE
 	ifeq ($(USE_LTO_ON_RELEASE),1)

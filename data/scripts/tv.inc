@@ -15,9 +15,11 @@ EventScript_TV::
 EventScript_TryDoTVShow::
 	specialvar VAR_0x8004, GetRandomActiveShowIdx
 	goto_if_eq VAR_0x8004, 255, EventScript_MomDadMightLikeThis2
-	specialvar VAR_0x8004, GetSelectedTVShow
-	goto_if_ne VAR_0x8004, 0, EventScript_DoTVShow
-	end
+	@ Emerald Evolved fix: the selected show's slot stays in VAR_0x8004 (DoTVShow reads tvShows[VAR_0x8004]); expansion
+	@ 1.17.2 wrote the show kind over it, so the TV played an empty slot and waited for a button forever.
+	specialvar VAR_RESULT, GetSelectedTVShow
+	goto_if_ne VAR_RESULT, 0, EventScript_DoTVShow
+	goto EventScript_MomDadMightLikeThis2
 
 EventScript_MomDadMightLikeThis1::
 	special GetMomOrDadStringForTVMessage

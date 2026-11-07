@@ -23,6 +23,7 @@
 #include "pokedex.h"
 #include "field_player_avatar.h"
 #include "evo_test.h"
+#include "sl_test.h"
 #include "event_object_movement.h"
 #include "genetics_palette.h"
 #include "constants/species.h"
@@ -1180,6 +1181,9 @@ static void CaptureSaves(void)
 
 void EvoTest_Frame(void)
 {
+#if SL_TEST
+    SlTest_Frame(); return;
+#endif
     if (gEvoTest.magic != 0x31545645) { gEvoTest.magic = 0x31545645; LogStr("Emerald Evolved ROM test\n"); }
     if (gEvoTest.finished) return;
     ApplyHold();
@@ -1214,6 +1218,9 @@ void EvoTest_Frame(void)
 
 void EvoTest_NewGame(void)
 {
+#if SL_TEST
+    SlTest_NewGame(); return;
+#endif
     static const u8 name[] = _("EVO");
     int i;
     for (i = 0; i < PLAYER_NAME_LENGTH + 1; i++) gSaveBlock2Ptr->playerName[i] = (i < 3) ? name[i] : EOS;
