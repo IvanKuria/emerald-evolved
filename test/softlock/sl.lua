@@ -48,7 +48,9 @@ callbacks:add("frame", function()
   elseif st == "walk" then
     emu:setKeys(t <= 24 and K_DOWN or 0)
     if t > 60 then
-      if r16s(14) ~= startY then done("PASS", sawScript and "ok" or "ok-noscript") else done("FAIL", "cannot-move") end
+      -- a crash or reset wipes the mailbox (y reads 0, "moved"): only a player back in the overworld counts
+      if r8(9) ~= 1 or r8(6) ~= 2 then done("FAIL", "not-in-field")
+      elseif r16s(14) ~= startY then done("PASS", sawScript and "ok" or "ok-noscript") else done("FAIL", "cannot-move") end
     end
   end
 end)

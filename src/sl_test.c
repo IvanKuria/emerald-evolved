@@ -50,7 +50,7 @@ void SlTest_ScriptState(u32 *out);
 EWRAM_DATA struct SlTestMailbox gSlTest = {0};
 
 // scenario: low byte = TV show kind to put on the air (0 = none), bit 8 = no party (no follower),
-// bit 9 = the interview's words were all left empty (kinds 1 and 6)
+// bit 9 = the interview's words were all left empty (kinds 1, 3, 6, 7)
 static void PutShow(u8 kind)
 {
     TVShow *show = &gSaveBlock1Ptr->tvShows[0];
@@ -85,6 +85,55 @@ static void PutShow(u8 kind)
         show->bravoTrainer.move = MOVE_WATER_GUN;
         show->bravoTrainer.language = GAME_LANGUAGE;
         show->bravoTrainer.pokemonNameLanguage = GAME_LANGUAGE;
+        break;
+    // kinds 3, 5, 7, 8: same idea, the fields their interviews write (InterviewAfter_PkmnFanClubOpinions,
+    // InterviewAfter_NameRater, InterviewAfter_BravoTrainerBattleTowerProfile, ContestLiveUpdates_*)
+    case TVSHOW_PKMN_FAN_CLUB_OPINIONS:
+        show->fanclubOpinions.species = SPECIES_MUDKIP;
+        show->fanclubOpinions.friendshipHighNybble = 8;
+        show->fanclubOpinions.questionAsked = 1;
+        StringCopy(show->fanclubOpinions.playerName, who);
+        StringCopy(show->fanclubOpinions.nickname, nick);
+        show->fanclubOpinions.language = GAME_LANGUAGE;
+        show->fanclubOpinions.pokemonNameLanguage = GAME_LANGUAGE;
+        for (i = 0; i < 2; i++)
+        {
+            show->fanclubOpinions.words18[i] = noWords ? EC_EMPTY_WORD : EC_POKEMON(MUDKIP);
+            show->fanclubOpinions.words[i] = noWords ? EC_EMPTY_WORD : EC_POKEMON(MUDKIP);
+        }
+        break;
+    case TVSHOW_NAME_RATER_SHOW:
+        show->nameRaterShow.species = SPECIES_MUDKIP;
+        StringCopy(show->nameRaterShow.pokemonName, nick);
+        StringCopy(show->nameRaterShow.trainerName, who);
+        show->nameRaterShow.random = 1;
+        show->nameRaterShow.random2 = 1;
+        show->nameRaterShow.randomSpecies = SPECIES_POOCHYENA;
+        show->nameRaterShow.language = GAME_LANGUAGE;
+        show->nameRaterShow.pokemonNameLanguage = GAME_LANGUAGE;
+        break;
+    case TVSHOW_BRAVO_TRAINER_BATTLE_TOWER_PROFILE:
+        StringCopy(show->bravoTrainerTower.playerName, who);
+        StringCopy(show->bravoTrainerTower.opponentName, nick);
+        show->bravoTrainerTower.species = SPECIES_MUDKIP;
+        show->bravoTrainerTower.defeatedSpecies = SPECIES_POOCHYENA;
+        show->bravoTrainerTower.numFights = 3;
+        show->bravoTrainerTower.words[0] = noWords ? EC_EMPTY_WORD : EC_POKEMON(MUDKIP);
+        show->bravoTrainerTower.playerLanguage = GAME_LANGUAGE;
+        show->bravoTrainerTower.opponentLanguage = GAME_LANGUAGE;
+        break;
+    case TVSHOW_CONTEST_LIVE_UPDATES:
+        show->contestLiveUpdates.losingSpecies = SPECIES_POOCHYENA;
+        StringCopy(show->contestLiveUpdates.losingTrainerName, nick);
+        show->contestLiveUpdates.round1Placing = 0;
+        show->contestLiveUpdates.round2Placing = 1;
+        show->contestLiveUpdates.loserAppealFlag = 1;
+        show->contestLiveUpdates.winnerAppealFlag = 1;
+        show->contestLiveUpdates.move = MOVE_WATER_GUN;
+        show->contestLiveUpdates.winningSpecies = SPECIES_MUDKIP;
+        StringCopy(show->contestLiveUpdates.winningTrainerName, who);
+        show->contestLiveUpdates.winningTrainerLanguage = GAME_LANGUAGE;
+        show->contestLiveUpdates.losingTrainerLanguage = GAME_LANGUAGE;
         break;
     }
 }
