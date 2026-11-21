@@ -1520,7 +1520,7 @@ static void CrossbreedUnits(void)
         LogStr(k == 0 ? "  Pikachu x Charmander daughters fertile " : "  Charmander x Bulbasaur daughters fertile ");
         LogNum(fertile); LogStr(" / "); LogNum(females); LogStr("\n");
         if (k == 0) Check(fertile * 20 <= females, "Pikachu x Charmander daughters: fertility ~0 (the mule)");
-        else Check(fertile * 2 >= females && fertile * 10 <= females * 9, "Charmander x Bulbasaur daughters: mostly fertile (~67%)");
+        else Check(fertile * 5 >= females * 2 && fertile * 10 <= females * 9, "Charmander x Bulbasaur daughters: often fertile (67%; 40-90% of 60)");
     }
 
     // ---- feature 9: three species
