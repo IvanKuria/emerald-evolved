@@ -20,6 +20,8 @@
 #include "constants/flags.h"
 #include "constants/tv.h"
 #include "constants/characters.h"
+#include "constants/easy_chat.h"
+#include "constants/moves.h"
 #include "sl_test.h"
 #include "genetics.h"
 #include "roamer.h"
@@ -47,24 +49,44 @@ struct SlTestMailbox
 void SlTest_ScriptState(u32 *out);
 EWRAM_DATA struct SlTestMailbox gSlTest = {0};
 
-// scenario: low byte = TV show kind to put on the air (0 = none), bit 8 = no party (no follower)
+// scenario: low byte = TV show kind to put on the air (0 = none), bit 8 = no party (no follower),
+// bit 9 = the interview's words were all left empty (kinds 1 and 6)
 static void PutShow(u8 kind)
 {
     TVShow *show = &gSaveBlock1Ptr->tvShows[0];
     static const u8 who[] = _("RIVAL");
+    static const u8 nick[] = _("MUDDY");
+    bool32 noWords = (gSlTest.scenario & 0x200) != 0;
+    u32 i;
     memset(show, 0, sizeof(*show));
     if (kind == 0)
         return;
     show->common.kind = kind;
     show->common.active = TRUE;
-    // fill every byte after kind/active with a plausible small value so names and species read as real ones
+    // Kinds 1 and 6 carry a player name, a species and Easy Chat words. Fill them the way the game's interviews do
+    // (InterviewAfter_FanClubLetter / InterviewAfter_BravoTrainerPokemonProfile): StringCopy of a terminated name,
+    // a real species, gGameLanguage, and words that start as EC_EMPTY_WORD. An all-zero show is not one the game can
+    // make: its name has no EOS, so StringCopy runs off the end of the show and over the string buffers.
+    switch (kind)
     {
-        u8 *b = (u8 *)show;
-        u32 i;
-        for (i = 2; i < sizeof(*show); i++)
-            b[i] = 0;
+    case TVSHOW_FAN_CLUB_LETTER:
+        show->fanclubLetter.species = SPECIES_MUDKIP;
+        for (i = 0; i < ARRAY_COUNT(show->fanclubLetter.words); i++)
+            show->fanclubLetter.words[i] = (noWords || i >= 2) ? EC_EMPTY_WORD : EC_POKEMON(MUDKIP);
+        StringCopy(show->fanclubLetter.playerName, who);
+        show->fanclubLetter.language = GAME_LANGUAGE;
+        break;
+    case TVSHOW_BRAVO_TRAINER_POKEMON_PROFILE:
+        show->bravoTrainer.species = SPECIES_MUDKIP;
+        for (i = 0; i < ARRAY_COUNT(show->bravoTrainer.words); i++)
+            show->bravoTrainer.words[i] = noWords ? EC_EMPTY_WORD : EC_POKEMON(MUDKIP);
+        StringCopy(show->bravoTrainer.playerName, who);
+        StringCopy(show->bravoTrainer.pokemonNickname, nick);
+        show->bravoTrainer.move = MOVE_WATER_GUN;
+        show->bravoTrainer.language = GAME_LANGUAGE;
+        show->bravoTrainer.pokemonNameLanguage = GAME_LANGUAGE;
+        break;
     }
-    (void)who;
 }
 
 
