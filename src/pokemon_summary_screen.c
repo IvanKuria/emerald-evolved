@@ -1,4 +1,5 @@
 #include "global.h"
+#include "crossbreed.h"
 #include "genetics.h"
 #include "main.h"
 #include "battle.h"
@@ -261,6 +262,7 @@ static void PrintMonOTName(void);
 static void PrintMonOTID(void);
 static void PrintMonHeight(void);
 static void PrintMonAbilityName(void);
+static void PrintMonChromosomes(u8 win, u32 usedLeft);
 static void PrintMonAbilityDescription(void);
 static void BufferMonTrainerMemo(void);
 static void PrintMonTrainerMemo(void);
@@ -3515,13 +3517,17 @@ static void PrintMonHeight(void)
     struct Genome g;
     u32 cm;
 
-    left = (GetSpeciesType(summary->species, 0) != GetSpeciesType(summary->species, 1)) ? 106 : 66;
+    {
+        u8 types[3];
+        u32 n = GetBoxMonHybridTypes(&sMonSummaryScreen->currentMon.box, summary->species, types);
+        left = (n == 1) ? 66 : (n == 2 ? 106 : right);   // three type badges leave no room for the height
+    }
     FillWindowPixelRect(win, PIXEL_FILL(0), 66, 0, right - 66, 16);   // the previous Pokémon's text may have been wider
-    if (!summary->isEgg)
+    if (!summary->isEgg && left < right)
     {
         const u8 *labels[] = {sText_Height, sText_HT, gText_EmptyString2};
-        GetBoxMonGenome(&sMonSummaryScreen->currentMon.box, &g);
-        cm = GenomeHeightCm(&g, summary->pid, gSpeciesInfo[summary->species].height);
+        (void)g;
+        cm = BoxMonHeightCm(&sMonSummaryScreen->currentMon.box);   // genes x a hybrid's growth
         p = ConvertIntToDecimalStringN(num, cm / 100, STR_CONV_MODE_LEFT_ALIGN, 3);
         *p++ = CHAR_PERIOD;
         p = ConvertIntToDecimalStringN(p, cm % 100, STR_CONV_MODE_LEADING_ZEROS, 2);
@@ -3570,13 +3576,63 @@ static void PrintMonOTID(void)
 static void PrintMonAbilityName(void)
 {
     enum Ability ability = GetAbilityBySpecies(sMonSummaryScreen->summary.species, sMonSummaryScreen->summary.abilityNum);
-    PrintTextOnWindow(AddWindowFromTemplateList(sPageInfoTemplate, PSS_DATA_WINDOW_INFO_ABILITY), gAbilitiesInfo[ability].name, 0, 1, 0, 1);
+    u8 win = AddWindowFromTemplateList(sPageInfoTemplate, PSS_DATA_WINDOW_INFO_ABILITY);
+    PrintTextOnWindow(win, gAbilitiesInfo[ability].name, 0, 1, 0, 1);
+    PrintMonChromosomes(win, GetStringWidth(FONT_NORMAL, gAbilitiesInfo[ability].name, 0));
+}
+
+// crossbreed feature 1: the chromosome count, right-aligned on the ability line ("CHROMOSOMES/ 40"); a shorter label
+// in the small font when a long ability name leaves less room.
+static void PrintMonChromosomes(u8 win, u32 usedLeft)
+{
+    static const u8 sText_Chromosomes[] = _("CHROMOSOMES/ ");
+    static const u8 sText_Chr[] = _("CHR/ ");
+    const u32 right = 144;
+    u8 text[32];
+    u32 n = GetBoxMonChromosomes(&sMonSummaryScreen->currentMon.box), i;
+
+    for (i = 0; i < 4; i++)
+    {
+        u32 font = (i & 1) ? FONT_SMALL : FONT_NORMAL, w;
+        ConvertIntToDecimalStringN(StringCopy(text, (i < 2) ? sText_Chromosomes : sText_Chr), n, STR_CONV_MODE_LEFT_ALIGN, 3);
+        w = GetStringWidth(font, text, 0);
+        if (usedLeft + 6 + w <= right || i == 3)
+        {
+            PrintTextOnWindowWithFont(win, text, right - w, 1, 0, 0, font);
+            return;
+        }
+    }
 }
 
 static void PrintMonAbilityDescription(void)
 {
     enum Ability ability = GetAbilityBySpecies(sMonSummaryScreen->summary.species, sMonSummaryScreen->summary.abilityNum);
-    PrintTextOnWindowToFit(AddWindowFromTemplateList(sPageInfoTemplate, PSS_DATA_WINDOW_INFO_ABILITY), gAbilitiesInfo[ability].description, 0, 17, 0, 0);
+    u8 win = AddWindowFromTemplateList(sPageInfoTemplate, PSS_DATA_WINDOW_INFO_ABILITY);
+    struct Lineage l;
+
+    GetBoxMonLineage(&sMonSummaryScreen->currentMon.box, &l);
+    if (LineageIsHybrid(&l))
+    {
+        // crossbreed: a hybrid shows its parent species instead ("Pikachu x Charmander"; oldest donor first), and a
+        // heart if she is a fertile female
+        static const u8 sText_Cross[] = _("×");
+        static const u8 sText_Fertile[] = _(" {EMOJI_HEART}");
+        u8 text[64], *p;
+        u32 i;
+        p = StringCopy(text, GetSpeciesName(sMonSummaryScreen->summary.species));
+        for (i = LINEAGE_DONORS; i-- > 0;)
+        {
+            if (l.donor[i] == SPECIES_NONE)
+                continue;
+            p = StringCopy(p, sText_Cross);
+            p = StringCopy(p, GetSpeciesName(l.donor[i]));
+        }
+        if (IsBoxMonFertile(&sMonSummaryScreen->currentMon.box))
+            StringCopy(p, sText_Fertile);
+        PrintTextOnWindowToFit(win, text, 0, 17, 0, 0);
+        return;
+    }
+    PrintTextOnWindowToFit(win, gAbilitiesInfo[ability].description, 0, 17, 0, 0);
 }
 
 static void BufferMonTrainerMemo(void)
@@ -4399,15 +4455,27 @@ static void SetMonTypeIcons(void)
     }
     else
     {
-        SetTypeSpritePosAndPal(GetSpeciesType(summary->species, 0), 120, 48, SPRITE_ARR_ID_TYPE);
-        if (GetSpeciesType(summary->species, 0) != GetSpeciesType(summary->species, 1))
+        // crossbreed: a hybrid's types (one from each parent); a three-species line shows a third badge
+        u8 types[3];
+        u32 n = GetBoxMonHybridTypes(&sMonSummaryScreen->currentMon.box, summary->species, types);
+        SetTypeSpritePosAndPal(types[0], 120, 48, SPRITE_ARR_ID_TYPE);
+        if (n >= 2)
         {
-            SetTypeSpritePosAndPal(GetSpeciesType(summary->species, 1), 160, 48, SPRITE_ARR_ID_TYPE + 1);
+            SetTypeSpritePosAndPal(types[1], 160, 48, SPRITE_ARR_ID_TYPE + 1);
             SetSpriteInvisibility(SPRITE_ARR_ID_TYPE + 1, FALSE);
         }
         else
         {
             SetSpriteInvisibility(SPRITE_ARR_ID_TYPE + 1, TRUE);
+        }
+        if (n >= 3)
+        {
+            SetTypeSpritePosAndPal(types[2], 200, 48, SPRITE_ARR_ID_TYPE + 2);
+            SetSpriteInvisibility(SPRITE_ARR_ID_TYPE + 2, FALSE);
+        }
+        else if (P_SHOW_TERA_TYPE < GEN_9)
+        {
+            SetSpriteInvisibility(SPRITE_ARR_ID_TYPE + 2, TRUE);
         }
         if (P_SHOW_TERA_TYPE >= GEN_9)
         {

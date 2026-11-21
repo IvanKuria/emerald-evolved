@@ -34,6 +34,13 @@ static const struct HybridRamp sHybridRamps[] =
     {SPECIES_PIKACHU, 5, {2, 3, 4, 5, 6}},
     {SPECIES_RAICHU, 6, {9, 10, 4, 5, 11, 12}},
     {SPECIES_EEVEE, 6, {8, 3, 7, 1, 2, 5}},
+    {SPECIES_VOLBEAT, 1, {12}},
+    {SPECIES_ILLUMISE, 5, {11, 12, 10, 9, 13}},
+    {SPECIES_POOCHYENA, 2, {10, 8}},
+    {SPECIES_MIGHTYENA, 3, {11, 7, 10}},
+    {SPECIES_SEEDOT, 4, {11, 10, 8, 9}},
+    {SPECIES_NUZLEAF, 6, {9, 10, 11, 15, 7, 8}},
+    {SPECIES_SHIFTRY, 5, {13, 2, 7, 5, 1}},
 };
 
 static const struct HybridRampMap sHybridRampMaps[] =

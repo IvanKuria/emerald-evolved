@@ -49,6 +49,7 @@ u32 GenomeSpecDerivedCopies(const struct Genome *genome);         // 0..16
 u32 GenomeSize(const struct Genome *genome, u32 personality);     // 4 * derived copies + (personality & 7), 0..71
 u32 GenomeSizeScale(const struct Genome *genome, u32 personality); // x256: 240 + 4 * size, capped at 512 (2x)
 u32 GenomeDisplayScale(const struct Genome *genome, u32 personality, u32 maxScale); // drawn size, x256: 256/341/409/512 only
+u32 GenomeDisplayScaleGrowth(const struct Genome *genome, u32 personality, u32 growth256, u32 maxScale); // + 128/192 (hybrids)
 // individual height in cm = species Pokédex height (decimeters) x 10 x GenomeSizeScale / 256, rounded
 u32 GenomeHeightCm(const struct Genome *genome, u32 personality, u32 speciesHeightDm);
 u32 GenomeIncompatiblePairs(const struct Genome *genome);         // n: pairs with a derived B next to an ancestral A

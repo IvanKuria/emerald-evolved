@@ -42,8 +42,13 @@
 #include "pokemon_storage_system.h"
 #include "hybrid_sprite.h"
 #include "decompress.h"
+#include "crossbreed.h"
+#include "wild_encounter.h"
+#include "strings.h"
+#include "constants/abilities.h"
 
 extern const u8 Route117_EventScript_CheckOnTwoMons[];
+extern const u8 Route117_PokemonDayCare_EventScript_RefuseMaleHybrid[];
 
 #define LOG_SIZE 2048
 struct EvoTestMailbox
@@ -65,6 +70,7 @@ static EWRAM_DATA struct Pokemon sDeadEgg = {0};
 #define LINE_MAX_GENS 60
 static EWRAM_DATA struct Pokemon sMum = {0}, sDad = {0}, sGen10[2] = {0}, sFinal[2] = {0}, sWildEevee = {0}, sWildF = {0};
 static EWRAM_DATA u16 sLineGen = 0, sLineDoneGen = 0, sLineEggs = 0, sLineFailed = 0, sLineAttempt = 0;
+static EWRAM_DATA u16 sLineStalls = 0;   // generations where all 10 eggs failed: the parents (and their counter) carry over
 #define LINE_WANT_GENS 24   // the capture saves want a line that finished around generation 20
 // pure-logic replicate lines
 #define REP_LINES 200
@@ -223,7 +229,7 @@ static void LogMon(const char *label, struct Pokemon *mon)
     LogStr(" d(wild) "); LogNum(GenomeSpeciesDistance(&g, &(struct Genome){0})); LogStr("\n");
 }
 
-enum { ST_BOOT, ST_SETUP, ST_UNIT, ST_REPLICATES, ST_LINE, ST_DAYCARE, ST_EGGS, ST_HATCH, ST_DEAD_EGG, ST_SAVES, ST_FOLLOWER, ST_GRASS, ST_BATTLE, ST_PARTY, ST_EVOLVE, ST_PC, ST_EEVEE_STATS, ST_EEVEE_CAPTURE, ST_CAPTURE_SAVES, ST_HYBRID, ST_DONE };
+enum { ST_BOOT, ST_SETUP, ST_UNIT, ST_REPLICATES, ST_LINE, ST_DAYCARE, ST_EGGS, ST_HATCH, ST_DEAD_EGG, ST_SAVES, ST_FOLLOWER, ST_GRASS, ST_BATTLE, ST_PARTY, ST_EVOLVE, ST_PC, ST_EEVEE_STATS, ST_EEVEE_CAPTURE, ST_CAPTURE_SAVES, ST_HYBRID, ST_CROSSBREED, ST_DONE };
 
 static void Boot(void)
 {
@@ -245,6 +251,7 @@ static void Setup(void)
     if (gEvoTest.pad == 1) { LogStr("[mode] Eevee script numbers only\n"); sStage = ST_EEVEE_STATS; }
     if (gEvoTest.pad == 2) { LogStr("[mode] Eevee capture line only\n"); sStage = ST_EEVEE_CAPTURE; }
     if (gEvoTest.pad == 3) { LogStr("[mode] hybrid sprites only\n"); sStage = ST_HYBRID; }
+    if (gEvoTest.pad == 4) { LogStr("[mode] cross-breeding only\n"); sStage = ST_CROSSBREED; }
 }
 
 // ---------------------------------------------------------------- pure logic checks
@@ -394,7 +401,7 @@ static void Line(void)
     if (sLineGen == LINE_WANT_GENS && sLineAttempt < 15 && !(WildTypeDistance(&sMum) >= 3 && WildTypeDistance(&sDad) >= 3))
     {
         LogStr("  line attempt "); LogNum(sLineAttempt + 1); LogStr(" not finished by gen 24; new wild founders\n");
-        sLineAttempt++; sLineGen = 0; sLineEggs = 0; sLineFailed = 0;
+        sLineAttempt++; sLineGen = 0; sLineEggs = 0; sLineFailed = 0; sLineStalls = 0;
     }
     if (sLineGen == 0)
     {
@@ -432,6 +439,7 @@ static void Line(void)
     ClearDaycare();
     if (haveF) sMum = bestF;
     if (haveM) sDad = bestM;
+    if (!haveF && !haveM) sLineStalls++;
     if (sLineGen == 10) { sGen10[0] = sMum; sGen10[1] = sDad; }
     if (sLineGen % 5 == 0 || (WildTypeDistance(&sMum) >= 3 && WildTypeDistance(&sDad) >= 3))
     {
@@ -450,7 +458,9 @@ static void Line(void)
         LogStr("  generation counter: F "); LogNum(GetMonData(&sMum, MON_DATA_GENERATION)); LogStr(", M "); LogNum(GetMonData(&sDad, MON_DATA_GENERATION)); LogStr("\n");
         {
             u32 gf = GetMonData(&sMum, MON_DATA_GENERATION), gm = GetMonData(&sDad, MON_DATA_GENERATION);
-            Check((gf > gm ? gf : gm) == sLineGen && gf + 5 >= sLineGen && gm + 5 >= sLineGen, "generation counter = generations bred (wild founders = 0)");
+            LogStr("  generations where every egg failed: "); LogNum(sLineStalls); LogStr("\n");
+            Check((gf > gm ? gf : gm) + sLineStalls == sLineGen && gf + sLineStalls + 5 >= sLineGen && gm + sLineStalls + 5 >= sLineGen,
+                  "generation counter = generations bred (wild founders = 0; a generation with no surviving egg adds none)");
         }
         {
             u8 name[POKEMON_NAME_LENGTH + 1];
@@ -536,7 +546,8 @@ static void Eggs(void)
 
     // family barrier + Ditto clone (realgen ports)
     MakeMon(&a, SPECIES_PIKACHU, 20, TRUE, NULL, FALSE); MakeMon(&b, SPECIES_EEVEE, 20, FALSE, NULL, FALSE);
-    Check(DaycareScore(&a, &b) == 0, "species barrier: Pikachu x Eevee (shared egg group, different families) can't breed");
+    // crossbreed (GAME_SPEC feature 2) replaced the family barrier: two species make a hybrid egg (score 20)
+    Check(DaycareScore(&a, &b) == PARENTS_LOW_COMPATIBILITY, "cross-species: Pikachu x Eevee can now make a (hybrid) egg");
     MakeMon(&b, SPECIES_RAICHU, 20, FALSE, NULL, FALSE);
     Check(DaycareScore(&a, &b) == 70, "same family (Pikachu x Raichu) breeds");
     for (tries = 0, i = 0; tries < 8; tries++)
@@ -1295,7 +1306,512 @@ static void Hybrid(void)
         if (sTimer == 730) Press(B_BUTTON);
         if (sTimer == 800) Press(B_BUTTON);
         if (sTimer == 860) Press(B_BUTTON);
-        if (sTimer > 900 && MashBUntilIdle()) { HybridSetTestLook(0, NULL); NextStage(); }
+        if (sTimer > 900 && MashBUntilIdle())
+        {
+            HybridSetTestLook(0, NULL);
+            NextStage();
+            if (gEvoTest.pad == 3) sStage = ST_DONE;   // hybrid-sprites-only mode stops here
+        }
+        break;
+    }
+}
+
+
+// ---------------------------------------------------------------- cross-breeding (GAME_SPEC features 1-9)
+// Unit checks of every rule through the game's own functions (Day Care eggs through GiveEggFromDaycare), then the real
+// screens: a wild "???" battle on Route 117, its catch, a Pikachu x Charmander egg hatching, the Day Care refusing a male
+// hybrid, the summary pages (chromosomes, parents, fertile heart, three type badges) and a battle of the two cross
+// directions (2x and 0.5x).
+static EWRAM_DATA struct Pokemon sXbPikaChar = {0}, sXbCharPika = {0}, sXbCharBulbF = {0}, sXbThree = {0}, sXbWild = {0};
+static EWRAM_DATA struct Pokemon sXbMaleHybrid = {0}, sXbEgg = {0};
+
+static void XbHybrid(struct Pokemon *mon, u16 body, u8 level, bool8 female, u16 donor0, u16 donor1, bool8 fertile)
+{
+    struct Genome g = {0};
+    struct Lineage l = {{donor0, donor1}, fertile};
+    MakeMon(mon, body, level, female, &g, FALSE);
+    SetBoxMonLineage(&mon->box, &l);
+    GiveMonInitialMoveset(mon);
+    CalculateMonStats(mon);
+}
+
+static bool32 LearnsetHas(const struct LevelUpMove *ls, u16 move, u32 *level)
+{
+    u32 i;
+    for (i = 0; ls[i].move != LEVEL_UP_MOVE_END; i++)
+        if (ls[i].move == move) { if (level) *level = ls[i].level; return TRUE; }
+    return FALSE;
+}
+
+static void LogTypes(const char *label, struct Pokemon *mon)
+{
+    u8 t[3]; u32 n = GetBoxMonHybridTypes(&mon->box, GetMonData(mon, MON_DATA_SPECIES), t), i;
+    LogStr("  "); LogStr(label); LogStr(" types");
+    for (i = 0; i < n; i++) { LogStr(" "); LogNum(t[i]); }
+    LogStr("\n");
+}
+
+static void CrossbreedUnits(void)
+{
+    struct Genome z = {0};
+    struct Lineage l, l2;
+    struct Pokemon a, b, *egg;
+    u32 i, n, k, lvl, females, fertile, dead, hatched, three;
+    u8 t[3], t1, t2;
+
+    LogStr("[crossbreed] units\n");
+    // ---- storage: 21 lineage bits in retired fields, checksum and everything else intact
+    MakeMon(&a, SPECIES_CHARMANDER, 20, TRUE, &z, FALSE);
+    {
+        u32 exp = GetMonData(&a, MON_DATA_EXP), otid = GetMonData(&a, MON_DATA_OT_ID), pid = GetMonData(&a, MON_DATA_PERSONALITY);
+        u16 gen = 300, tracker = 777;
+        struct Genome g0, g1;
+        GetBoxMonGenome(&a.box, &g0);
+        l.donor[0] = SPECIES_PIKACHU; l.donor[1] = SPECIES_BULBASAUR; l.fertile = TRUE;
+        SetBoxMonLineage(&a.box, &l);
+        GetBoxMonLineage(&a.box, &l2);
+        GetBoxMonGenome(&a.box, &g1);
+        Check(l2.donor[0] == SPECIES_PIKACHU && l2.donor[1] == SPECIES_BULBASAUR && l2.fertile, "lineage round trip (donors + fertile bit)");
+        Check(!GetMonData(&a, MON_DATA_SANITY_IS_BAD_EGG) && GetMonData(&a, MON_DATA_SPECIES) == SPECIES_CHARMANDER
+              && GetMonData(&a, MON_DATA_EXP) == exp && GetMonData(&a, MON_DATA_OT_ID) == otid
+              && GetMonData(&a, MON_DATA_PERSONALITY) == pid && SameGenome(&g0, &g1), "lineage write keeps checksum, species, EXP, OT, PID, genome");
+        SetMonData(&a, MON_DATA_GENERATION, &gen);
+        SetMonData(&a, MON_DATA_EVOLUTION_TRACKER, &tracker);
+        SetMonData(&a, MON_DATA_DAYS_SINCE_FORM_CHANGE, &tracker);
+        SetMonData(&a, MON_DATA_NICKNAME, gText_ExpandedPlaceholder_Empty);
+        GetBoxMonLineage(&a.box, &l2);
+        Check(GetMonData(&a, MON_DATA_GENERATION) == 255 && GetMonData(&a, MON_DATA_EVOLUTION_TRACKER) == 0
+              && GetMonData(&a, MON_DATA_DAYS_SINCE_FORM_CHANGE) == 0
+              && l2.donor[0] == SPECIES_PIKACHU && l2.donor[1] == SPECIES_BULBASAUR && l2.fertile,
+              "generation caps at 255; tracker / form-day / nickname writes can't touch the lineage");
+        CreateMon(&b, SPECIES_CHARMANDER, 5, 0, OTID_STRUCT_PLAYER_ID);
+        Check(!IsBoxMonHybrid(&b.box), "a new Pokemon is not a hybrid");
+    }
+
+    // ---- feature 1: chromosomes
+    {
+        static const u16 sp[] = {SPECIES_PIKACHU, SPECIES_PICHU, SPECIES_RAICHU, SPECIES_CHARMANDER, SPECIES_CHARIZARD,
+                                 SPECIES_BULBASAUR, SPECIES_EEVEE, SPECIES_VAPOREON, SPECIES_MAGIKARP, SPECIES_GYARADOS,
+                                 SPECIES_WAILORD, SPECIES_VOLBEAT, SPECIES_ILLUMISE, SPECIES_ODDISH, SPECIES_SEEDOT, SPECIES_POOCHYENA};
+        static const u8 want[] = {40, 40, 42, 52, 52, 48, 38, 38, 104, 104, 44, 0, 0, 0, 0, 0};
+        bool32 ok = TRUE, fam = TRUE;
+        for (i = 0; i < ARRAY_COUNT(sp); i++)
+        {
+            LogStr("  chromosomes "); LogNum(sp[i]); LogStr(" = "); LogNum(GetSpeciesChromosomes(sp[i])); LogStr("\n");
+            if (want[i] && GetSpeciesChromosomes(sp[i]) != want[i]) ok = FALSE;
+        }
+        Check(ok, "the video's fixed chromosome numbers (Pikachu/Pichu 40, Raichu 42, Charmander 52, Bulbasaur 48, Eevee 38, Magikarp 104, Wailord 44)");
+        for (i = 1; i <= SPECIES_DEOXYS; i++)
+            if (IsSpeciesEnabled(i) && GET_BASE_SPECIES_ID(i) != SPECIES_RAICHU && GetSpeciesChromosomes(i) != GetSpeciesChromosomes(CrossbreedFamily(i)))
+                { fam = FALSE; LogStr("  family mismatch "); LogNum(i); LogStr("\n"); }
+        Check(fam, "every Gen 1-3 species has its family's number (Raichu is the one override)");
+        Check(GetSpeciesChromosomes(SPECIES_VOLBEAT) != GetSpeciesChromosomes(SPECIES_POOCHYENA)
+              && (GetSpeciesChromosomes(SPECIES_ILLUMISE) - GetSpeciesChromosomes(SPECIES_VOLBEAT) <= 2), "related species have close numbers (Volbeat/Illumise within 2)");
+    }
+
+    // ---- feature 2: cross-species eggs; Ditto and the Undiscovered group stay vanilla
+    MakeMon(&a, SPECIES_PIKACHU, 20, TRUE, &z, FALSE);
+    MakeMon(&b, SPECIES_CHARMANDER, 20, FALSE, &z, FALSE);
+    Check(DaycareScore(&a, &b) == PARENTS_LOW_COMPATIBILITY, "Pikachu F x Charmander M (no shared egg group) can make an egg (score 20)");
+    MakeMon(&b, SPECIES_BULBASAUR, 20, FALSE, &z, FALSE);
+    MakeMon(&a, SPECIES_CHARMANDER, 20, TRUE, &z, FALSE);
+    Check(DaycareScore(&a, &b) == PARENTS_LOW_COMPATIBILITY, "Charmander F x Bulbasaur M (shared Monster group) score 20");
+    MakeMon(&a, SPECIES_PICHU, 20, TRUE, &z, FALSE);
+    Check(DaycareScore(&a, &b) == PARENTS_INCOMPATIBLE, "Undiscovered group (Pichu) still can't breed");
+    MakeMon(&a, SPECIES_DITTO, 20, TRUE, &z, FALSE);
+    Check(DaycareScore(&a, &b) == PARENTS_LOW_COMPATIBILITY, "Ditto x Bulbasaur (same OT) stays vanilla (20)");
+    ResetParty();
+    egg = DaycareEggOf(SPECIES_DITTO, SPECIES_BULBASAUR, &z, &z, FALSE);
+    Check(GetMonData(egg, MON_DATA_SPECIES) == SPECIES_BULBASAUR && !IsBoxMonHybrid(&egg->box), "Ditto egg = the other parent, not a hybrid");
+    ResetParty();
+    egg = DaycareEggOf(SPECIES_PIKACHU, SPECIES_RAICHU, &z, &z, FALSE);
+    Check(GetMonData(egg, MON_DATA_SPECIES) == SPECIES_PICHU && !IsBoxMonHybrid(&egg->box), "same family (Pikachu x Raichu) = a normal egg");
+
+    // ---- features 2+3: the hybrid egg: mother's body, father's lineage, the sprite look
+    ResetParty();
+    egg = DaycareEggOf(SPECIES_CHARMANDER, SPECIES_PIKACHU, &z, &z, FALSE);
+    GetBoxMonLineage(&egg->box, &l);
+    Check(GetMonData(egg, MON_DATA_SPECIES) == SPECIES_CHARMANDER && l.donor[0] == SPECIES_PIKACHU && l.donor[1] == SPECIES_NONE,
+          "Charmander F x Pikachu M egg: Charmander body, Pikachu lineage");
+    ResetParty();
+    egg = DaycareEggOf(SPECIES_PIKACHU, SPECIES_CHARMANDER, &z, &z, FALSE);
+    GetBoxMonLineage(&egg->box, &l);
+    sXbEgg = *egg;
+    Check(GetMonData(egg, MON_DATA_SPECIES) == SPECIES_PICHU && l.donor[0] == SPECIES_CHARMANDER,
+          "Pikachu F x Charmander M egg: the mother's line hatches (Pichu), Charmander lineage");
+    ResetParty();
+    egg = DaycareEggOf(SPECIES_ILLUMISE, SPECIES_VOLBEAT, &z, &z, FALSE);
+    GetBoxMonLineage(&egg->box, &l);
+    Check(GetMonData(egg, MON_DATA_SPECIES) == SPECIES_ILLUMISE && l.donor[0] == SPECIES_VOLBEAT, "Illumise F x Volbeat M = an Illumise-body hybrid (no coin flip)");
+    XbHybrid(&sXbPikaChar, SPECIES_PIKACHU, 20, FALSE, SPECIES_CHARMANDER, SPECIES_NONE, FALSE);
+    XbHybrid(&sXbCharPika, SPECIES_CHARMANDER, 20, FALSE, SPECIES_PIKACHU, SPECIES_NONE, FALSE);
+    XbHybrid(&sXbCharBulbF, SPECIES_CHARMANDER, 20, TRUE, SPECIES_BULBASAUR, SPECIES_NONE, TRUE);
+    XbHybrid(&sXbThree, SPECIES_CHARMANDER, 20, TRUE, SPECIES_PIKACHU, SPECIES_BULBASAUR, TRUE);
+    {
+        struct HybridLook look;
+        Check(GetBoxMonHybridLook(&sXbPikaChar.box, &look) && look.colourSpecies == SPECIES_CHARMANDER
+              && look.partSpecies[0] == SPECIES_CHARMANDER && look.partSpecies[1] == SPECIES_NONE, "sprite look: Charmander colours + flame");
+        Check(GetBoxMonHybridLook(&sXbThree.box, &look) && look.colourSpecies == SPECIES_PIKACHU
+              && look.partSpecies[0] == SPECIES_BULBASAUR && look.partSpecies[1] == SPECIES_PIKACHU, "sprite look: three-species = Pikachu colours, bulb then ears");
+        Check(!GetBoxMonHybridLook(&b.box, &look), "no look for a plain Pokemon");
+    }
+
+    // ---- feature 4: types
+    GetBoxMonBattleTypes(&sXbPikaChar.box, SPECIES_PIKACHU, &t1, &t2);
+    Check(t1 == TYPE_ELECTRIC && t2 == TYPE_FIRE, "Pikachu x Charmander is ELECTRIC / FIRE in battle");
+    n = GetBoxMonHybridTypes(&sXbThree.box, SPECIES_CHARMANDER, t);
+    LogTypes("three-species", &sXbThree);
+    Check(n == 3 && t[0] == TYPE_FIRE && t[1] == TYPE_GRASS && t[2] == TYPE_ELECTRIC, "three-species shows FIRE / GRASS / ELECTRIC");
+    GetBoxMonBattleTypes(&sXbThree.box, SPECIES_CHARMANDER, &t1, &t2);
+    Check(t1 == TYPE_FIRE && t2 == TYPE_ELECTRIC, "three-species battles as FIRE / ELECTRIC (engine limit: 2 types)");
+
+    // ---- feature 5: moves from both sides
+    {
+        const struct LevelUpMove *ls = CrossbreedLearnset(&sXbPikaChar.box, SPECIES_PIKACHU);
+        u32 emberLevel = 0;
+        bool32 learned = FALSE;
+        Check(LearnsetHas(ls, MOVE_THUNDER_SHOCK, NULL) && LearnsetHas(ls, MOVE_EMBER, &emberLevel), "hybrid learnset has Thunder Shock and Ember");
+        Check(!LearnsetHas(GetSpeciesLevelUpLearnset(SPECIES_PIKACHU), MOVE_EMBER, NULL), "(plain Pikachu does not learn Ember)");
+        XbHybrid(&a, SPECIES_PIKACHU, emberLevel, FALSE, SPECIES_CHARMANDER, SPECIES_NONE, FALSE);
+        SetMoves(&a, MOVE_THUNDER_SHOCK);
+        for (k = MonTryLearningNewMoveAtLevel(&a, TRUE, emberLevel); k != MOVE_NONE; k = MonTryLearningNewMoveAtLevel(&a, FALSE, emberLevel))
+            if (k == MOVE_EMBER) learned = TRUE;
+        LogStr("  Ember at level "); LogNum(emberLevel); LogStr("\n");
+        Check(learned, "a Pikachu x Charmander learns Ember on level-up");
+    }
+
+    // ---- feature 6: parent-of-origin growth (liger / tigon)
+    LogStr("  scale x256: Pikachu x Charmander "); LogNum(BoxMonDisplayScale(&sXbPikaChar.box, 512));
+    LogStr(", Charmander x Pikachu "); LogNum(BoxMonDisplayScale(&sXbCharPika.box, 512));
+    LogStr("; height cm "); LogNum(BoxMonHeightCm(&sXbPikaChar.box)); LogStr(" / "); LogNum(BoxMonHeightCm(&sXbCharPika.box)); LogStr("\n");
+    Check(BoxMonDisplayScale(&sXbPikaChar.box, 512) == 512 && BoxMonHeightCm(&sXbPikaChar.box) > 60,
+          "Charmander dad x Pikachu mom: drawn 2x, taller than both parents (Pikachu 0.4 m, Charmander 0.6 m)");
+    Check(BoxMonDisplayScale(&sXbCharPika.box, 512) == 128 && BoxMonHeightCm(&sXbCharPika.box) < 40,
+          "Pikachu dad x Charmander mom: drawn 0.5x, smaller than both parents");
+    MakeMon(&a, SPECIES_PIKACHU, 20, TRUE, &z, FALSE);
+    Check(BoxMonDisplayScale(&a.box, 512) == 256, "a plain Pikachu is drawn 1x (growth only acts in hybrids)");
+
+    // ---- feature 7: Haldane's rule and fertility
+    XbHybrid(&sXbMaleHybrid, SPECIES_CHARMANDER, 20, FALSE, SPECIES_BULBASAUR, SPECIES_NONE, TRUE);
+    Check(IsBoxMonMaleHybrid(&sXbMaleHybrid.box) && !IsBoxMonFertile(&sXbMaleHybrid.box), "male hybrid is sterile even with the fertile bit");
+    MakeMon(&a, SPECIES_CHARMANDER, 20, TRUE, &z, FALSE);
+    Check(DaycareScore(&a, &sXbMaleHybrid) == PARENTS_INCOMPATIBLE, "male hybrid x female: no egg");
+    MakeMon(&b, SPECIES_DITTO, 20, FALSE, &z, FALSE);
+    Check(DaycareScore(&b, &sXbMaleHybrid) == PARENTS_INCOMPATIBLE, "male hybrid x Ditto: no egg");
+    XbHybrid(&a, SPECIES_PIKACHU, 20, TRUE, SPECIES_CHARMANDER, SPECIES_NONE, FALSE);
+    MakeMon(&b, SPECIES_PIKACHU, 20, FALSE, &z, FALSE);
+    Check(DaycareScore(&a, &b) == PARENTS_INCOMPATIBLE, "an infertile female hybrid: no egg");
+    MakeMon(&b, SPECIES_CHARMANDER, 20, FALSE, &z, FALSE);
+    Check(DaycareScore(&sXbCharBulbF, &b) == PARENTS_LOW_COMPATIBILITY, "a fertile female hybrid can breed");
+    LogStr("  fertility /256: Pikachu x Charmander "); LogNum(HybridFertilityChance256(40, 52));
+    LogStr(", Charmander x Bulbasaur "); LogNum(HybridFertilityChance256(52, 48)); LogStr("\n");
+    for (k = 0; k < 2; k++)
+    {
+        females = fertile = 0;
+        for (i = 0; i < 2000 && females < 60; i++)   // 60 daughters (Charmander is 1 in 8 female)
+        {
+            ResetParty();
+            egg = k == 0 ? DaycareEggOf(SPECIES_PIKACHU, SPECIES_CHARMANDER, &z, &z, FALSE)
+                         : DaycareEggOf(SPECIES_CHARMANDER, SPECIES_BULBASAUR, &z, &z, FALSE);
+            if (GetMonGender(egg) == MON_FEMALE) { females++; fertile += IsBoxMonFertile(&egg->box); }
+        }
+        LogStr(k == 0 ? "  Pikachu x Charmander daughters fertile " : "  Charmander x Bulbasaur daughters fertile ");
+        LogNum(fertile); LogStr(" / "); LogNum(females); LogStr("\n");
+        if (k == 0) Check(fertile * 20 <= females, "Pikachu x Charmander daughters: fertility ~0 (the mule)");
+        else Check(fertile * 2 >= females && fertile * 10 <= females * 9, "Charmander x Bulbasaur daughters: mostly fertile (~67%)");
+    }
+
+    // ---- feature 9: three species
+    MakeMon(&b, SPECIES_PIKACHU, 20, FALSE, &z, FALSE);
+    Check(DaycareScore(&sXbCharBulbF, &b) == PARENTS_LOW_COMPATIBILITY && IsThirdSpeciesCross(&sXbCharBulbF.box, &b.box),
+          "fertile Charmander x Bulbasaur female x Pikachu M: a third-species cross");
+    dead = hatched = three = 0;
+    for (i = 0; i < 200; i++)
+    {
+        struct Genome g;
+        ResetParty();
+        gPlayerParty[0] = sXbCharBulbF;   // keep her lineage: DaycareEggOf would rebuild a plain mother
+        SetDaycare(&sXbCharBulbF, &b);
+        TriggerPendingDaycareEgg();
+        GiveEggFromDaycare();
+        egg = &gPlayerParty[gPlayerPartyCount - 1];
+        GetBoxMonGenome(&egg->box, &g);
+        if (GenomeIsLethal(&g)) { dead++; continue; }
+        hatched++;
+        GetBoxMonLineage(&egg->box, &l);
+        n = GetBoxMonHybridTypes(&egg->box, GetMonData(egg, MON_DATA_SPECIES), t);
+        if (GetMonData(egg, MON_DATA_SPECIES) == SPECIES_CHARMANDER && l.donor[0] == SPECIES_PIKACHU && l.donor[1] == SPECIES_BULBASAUR
+         && n == 3 && (GetMonGender(egg) != MON_FEMALE || l.fertile))
+            three++;
+    }
+    ClearDaycare();
+    LogStr("  third-species eggs: "); LogNum(dead); LogStr(" never hatch, "); LogNum(hatched); LogStr(" hatch\n");
+    Check(dead >= 150 && hatched >= 8 && hatched <= 45, "most third-species eggs fail; about 1 in 8 hatches");
+    Check(three == hatched, "every hatched one is Charmander body + Bulbasaur + Pikachu, 3 types, daughters fertile");
+    MakeMon(&b, SPECIES_CHARMANDER, 20, FALSE, &z, FALSE);
+    for (i = 0, dead = 0; i < 40; i++)
+    {
+        struct Genome g;
+        ResetParty();
+        SetDaycare(&sXbCharBulbF, &b);
+        TriggerPendingDaycareEgg();
+        GiveEggFromDaycare();
+        GetBoxMonGenome(&gPlayerParty[gPlayerPartyCount - 1].box, &g);
+        dead += GenomeIsLethal(&g);
+    }
+    ClearDaycare();
+    LogStr("  backcross eggs that fail (speciation mutations only): "); LogNum(dead); LogStr(" / 40\n");
+    Check(dead <= 8, "a backcross (hybrid female x Charmander) hatches normally");
+
+    // ---- feature 8: wild hybrids
+    {
+        static const u16 r117[] = {SPECIES_POOCHYENA, SPECIES_ODDISH, SPECIES_MARILL, SPECIES_ILLUMISE, SPECIES_VOLBEAT, SPECIES_SEEDOT};
+        u32 j;
+        LogStr("  Route 117 related pairs (mother x father):");
+        for (i = 0; i < ARRAY_COUNT(r117); i++)
+            for (j = 0; j < ARRAY_COUNT(r117); j++)
+                if (WildHybridPartnerOk(r117[i], r117[j])) { LogStr(" "); LogNum(r117[i]); LogStr("x"); LogNum(r117[j]); }
+        LogStr("\n");
+    }
+    Check(WildHybridPartnerOk(SPECIES_ILLUMISE, SPECIES_VOLBEAT) && !WildHybridPartnerOk(SPECIES_VOLBEAT, SPECIES_ILLUMISE)
+          && !WildHybridPartnerOk(SPECIES_MARILL, SPECIES_ODDISH) && !WildHybridPartnerOk(SPECIES_ODDISH, SPECIES_POOCHYENA),
+          "Route 117: Illumise x Volbeat are related (Volbeat can't be the mother); Marill/Oddish/Poochyena aren't");
+    {
+        const struct WildPokemonInfo *info = gWildMonHeaders[GetCurrentMapWildMonHeaderId()].encounterTypes[0].landMonsInfo;
+        u32 illumise = 0, hybrids = 0, other = 0, all = 0;
+        for (i = 0; i < 1600; i++)
+        {
+            TryGenerateWildMon(info, WILD_AREA_LAND, 0);
+            all += IsBoxMonHybrid(&gEnemyParty[0].box);
+            if (GetMonData(&gEnemyParty[0], MON_DATA_SPECIES) == SPECIES_ILLUMISE)
+            {
+                illumise++;
+                hybrids += IsBoxMonHybrid(&gEnemyParty[0].box);
+            }
+            else if (IsBoxMonHybrid(&gEnemyParty[0].box))
+            {
+                struct Lineage wl;
+                GetBoxMonLineage(&gEnemyParty[0].box, &wl);
+                if (!WildHybridPartnerOk(GetMonData(&gEnemyParty[0], MON_DATA_SPECIES), wl.donor[0]))
+                    other++;   // a hybrid of two species that aren't a related pair
+            }
+        }
+        LogStr("  Route 117 x1600: Illumise "); LogNum(illumise); LogStr(", of them hybrids "); LogNum(hybrids);
+        LogStr("; hybrids of any species "); LogNum(all); LogStr("\n");
+        Check(hybrids * 32 >= illumise && hybrids * 6 <= illumise && other == 0, "wild Illumise are Volbeat hybrids about 1 in 16; only related pairs");
+    }
+}
+
+static void Crossbreed(void)
+{
+    u32 t;
+    sTimer++;
+    switch (sSub)
+    {
+    case 0:
+        if (!FieldIdle()) { sTimer = 0; break; }
+        if (sTimer < 10) break;
+        CrossbreedUnits();
+        ResetParty();
+        sSub = 1; sTimer = 0;
+        break;
+    case 1:     // a wild hybrid on Route 117 through the real encounter path: "Wild ??? appeared!"
+        if (sTimer == 1)
+        {
+            const struct WildPokemonInfo *info = gWildMonHeaders[GetCurrentMapWildMonHeaderId()].encounterTypes[0].landMonsInfo;
+            u32 i;
+            gCrossbreedForceWildHybrid = TRUE;
+            for (i = 0; i < 200; i++)
+            {
+                TryGenerateWildMon(info, WILD_AREA_LAND, 0);
+                if (GetMonData(&gEnemyParty[0], MON_DATA_SPECIES) == SPECIES_ILLUMISE && IsBoxMonHybrid(&gEnemyParty[0].box))
+                    break;
+            }
+            gCrossbreedForceWildHybrid = FALSE;
+            {
+                u8 name[POKEMON_NAME_LENGTH + 1];
+                GetMonData(&gEnemyParty[0], MON_DATA_NICKNAME, name);
+                Check(IsWildHybridName(name) && IsBoxMonHybrid(&gEnemyParty[0].box), "wild Illumise x Volbeat hybrid is named ??? in battle");
+            }
+            gPlayerParty[0] = sXbPikaChar;
+            CalculatePlayerPartyCount();
+            sXbWild = gEnemyParty[0];
+            BattleSetup_StartWildBattle();
+        }
+        if (sTimer == 60 * 5) Shot("xb_wild_hybrid_appeared");
+        if (sTimer == 60 * 6) Shot("xb_wild_hybrid_appeared_b");
+        if (sTimer < 60 * 12 && sTimer > 60 * 7 && (sTimer % 90) == 0) Press(B_BUTTON);
+        if (sTimer < 60 * 12) break;
+        t = sTimer - 60 * 12;
+        if (t == 0) Shot("xb_wild_hybrid_battle");
+        {
+            u32 k = t % 240;
+            if (k == 10) Press(DPAD_RIGHT);
+            if (k == 20) Press(DPAD_DOWN);
+            if (k == 30) Press(A_BUTTON);       // RUN (retry)
+            if (k > 40 && (k % 50) == 0) Press(B_BUTTON);
+            if (FieldIdle() && t > 100) { sSub = 2; sTimer = 0; }
+            if (t > 240 * 20) { Check(FALSE, "could not run from the wild hybrid"); sSub = 2; sTimer = 0; }
+        }
+        break;
+    case 2:     // caught: identified, then a real egg hatch (Pikachu F x Charmander M)
+        if (sTimer == 1 && !FieldIdle()) { sTimer = 0; break; }
+        if (sTimer == 1)
+        {
+            u8 name[POKEMON_NAME_LENGTH + 1];
+            ResetParty();
+            GiveCapturedMonToPlayer(&sXbWild);
+            GetMonData(&gPlayerParty[0], MON_DATA_NICKNAME, name);
+            Check(!IsWildHybridName(name) && IsBoxMonHybrid(&gPlayerParty[0].box), "caught: the ??? gets its species name, stays a hybrid");
+            sXbWild = gPlayerParty[0];
+            ResetParty();
+            gPlayerParty[0] = sXbCharPika;
+            gPlayerParty[1] = sXbEgg;
+            CalculatePlayerPartyCount();
+            ArmHatch();
+            TakeStep();
+            sLastHatchState = 0xFF;
+            sCount = 0;
+        }
+        else
+        {
+            u8 state = EvoTest_EggHatchState();
+            if (state != sLastHatchState) { LogStr("  hatch state "); LogNum(state); LogStr(" at "); LogNum(sTimer); LogStr("\n"); }
+            if (state != 0xFF) sCount = 1;   // the hatch scene has started
+            if (sCount == 0)
+            {
+                if (!FieldIdle() && (sTimer % 45) == 0) Press(B_BUTTON);   // the hatch script's "Oh?"
+                if (FieldIdle() && (sTimer % 60) == 0)
+                {
+                    struct ObjectEvent *pl = &gObjectEvents[gPlayerAvatar.objectEventId];
+                    LogStr("  hatch try: steps "); LogNum(gSaveBlock1Ptr->daycare.stepCounter); LogStr(" egg friendship ");
+                    LogNum(GetMonData(&gPlayerParty[1], MON_DATA_FRIENDSHIP)); LogStr(" isEgg "); LogNum(GetMonData(&gPlayerParty[1], MON_DATA_IS_EGG));
+                    LogStr(" at "); LogNum(pl->currentCoords.x); LogStr(","); LogNum(pl->currentCoords.y); LogStr("\n");
+                    ArmHatch(); TakeStep();
+                }
+                if (sTimer > 60 * 30) { Check(FALSE, "hybrid egg never started hatching"); sSub = 3; sTimer = 0; }
+                break;
+            }
+            if (state == 6 && sLastHatchState != 6) sStateTicks = 0;
+            sLastHatchState = state;
+            if (state == 6 && ++sStateTicks == 50) Shot("xb_hatch_pikachu_x_charmander");
+            if (sTimer > 30 && (state == 0xFF || state >= 9))
+            {
+                if (MashBUntilIdle())
+                {
+                    struct Lineage l;
+                    GetBoxMonLineage(&gPlayerParty[1].box, &l);
+                    Check(!GetMonData(&gPlayerParty[1], MON_DATA_IS_EGG) && l.donor[0] == SPECIES_CHARMANDER, "the hybrid egg hatched, lineage intact");
+                    sSub = 3; sTimer = 0;
+                }
+            }
+            else if (sTimer > 60 * 60) { Check(FALSE, "hybrid hatch did not finish"); sSub = 3; sTimer = 0; }
+        }
+        break;
+    case 3:     // the Day Care won't take a male hybrid: the real deposit check + the refusal text
+        if (sTimer == 1)
+        {
+            if (!FieldIdle()) { sTimer = 0; break; }
+            ResetParty();
+            gPlayerParty[0] = sXbCharBulbF;
+            gPlayerParty[1] = sXbMaleHybrid;
+            CalculatePlayerPartyCount();
+            gSpecialVar_0x8004 = 1;
+            CrossbreedIsSelectedMonMaleHybrid();
+            Check(gSpecialVar_Result == TRUE, "deposit check: the male hybrid is refused");
+            gSpecialVar_0x8004 = 0;
+            CrossbreedIsSelectedMonMaleHybrid();
+            Check(gSpecialVar_Result == FALSE, "deposit check: a female hybrid is taken");
+            gSpecialVar_0x8004 = 1;
+            GetSelectedMonNicknameAndSpecies();
+            ScriptContext_SetupScript(Route117_PokemonDayCare_EventScript_RefuseMaleHybrid);
+        }
+        if (sTimer == 120) Shot("xb_daycare_refuses_male_hybrid");
+        if (sTimer == 130) Press(A_BUTTON);
+        if (sTimer == 220) Shot("xb_daycare_refuses_male_hybrid_2");
+        if (sTimer > 230 && (sTimer % 40) == 0) Press(A_BUTTON);
+        if (sTimer > 300 && FieldIdle()) { sSub = 4; sTimer = 0; }
+        if (sTimer > 1500) { Check(FALSE, "refusal script did not finish"); sSub = 4; sTimer = 0; }
+        break;
+    case 4:     // summary INFO pages: chromosomes, parents, fertile heart, three type badges
+        if (sTimer == 1)
+        {
+            struct Genome z = {0}; struct Pokemon plain;
+            ResetParty();
+            gPlayerParty[0] = sXbPikaChar;
+            gPlayerParty[1] = sXbThree;
+            gPlayerParty[2] = sXbCharBulbF;
+            gPlayerParty[3] = sXbWild;
+            gPlayerParty[4] = sXbCharPika;
+            MakeMon(&plain, SPECIES_PIKACHU, 20, FALSE, &z, FALSE);
+            gPlayerParty[5] = plain;
+            CalculatePlayerPartyCount();
+        }
+        if (sTimer == 10) Press(START_BUTTON);
+        if (sTimer == 40) Press(DPAD_DOWN);
+        if (sTimer == 60) Press(A_BUTTON);       // POKeMON
+        if (sTimer == 160) Shot("xb_party_menu");
+        if (sTimer == 170) Press(A_BUTTON);      // first mon
+        if (sTimer == 200) Press(A_BUTTON);      // SUMMARY
+        {
+            static const char *const names[] = {"xb_summary_pika_x_char", "xb_summary_three_species", "xb_summary_char_x_bulb_fertile",
+                                                "xb_summary_wild_illumise_x_volbeat", "xb_summary_char_x_pika", "xb_summary_plain_pikachu"};
+            u32 i;
+            for (i = 0; i < 6; i++)
+            {
+                if (sTimer == 330 + i * 130) Shot(names[i]);
+                if (sTimer == 340 + i * 130 && i < 5) Press(DPAD_DOWN);
+            }
+        }
+        if (sTimer == 1100) Press(B_BUTTON);
+        if (sTimer == 1170) Press(B_BUTTON);
+        if (sTimer == 1230) Press(B_BUTTON);
+        if (sTimer > 1270 && MashBUntilIdle()) { sSub = 5; sTimer = 0; }
+        break;
+    case 5:     // battle: Pikachu x Charmander (2x, ELECTRIC/FIRE, uses Ember) vs Charmander x Pikachu (0.5x)
+        if (sTimer == 1)
+        {
+            ResetParty();
+            gPlayerParty[0] = sXbPikaChar;
+            CalculatePlayerPartyCount();
+            SetMoves(&gPlayerParty[0], MOVE_EMBER);
+            SetMonMoveSlot(&gPlayerParty[0], MOVE_THUNDER_SHOCK, 1);
+            ZeroEnemyPartyMons();
+            gEnemyParty[0] = sXbCharPika;
+            SetMoves(&gEnemyParty[0], MOVE_GROWL);
+            BattleSetup_StartWildBattle();
+        }
+        if (sTimer < 60 * 12 && (sTimer % 90) == 0) Press(B_BUTTON);
+        if (sTimer < 60 * 12) break;
+        t = sTimer - 60 * 12;
+        if (t == 0)
+        {
+            u32 p = GetBattlerAtPosition(B_POSITION_PLAYER_LEFT), o = GetBattlerAtPosition(B_POSITION_OPPONENT_LEFT);
+            LogStr("  battle types: player "); LogNum(gBattleMons[p].types[0]); LogStr("/"); LogNum(gBattleMons[p].types[1]);
+            LogStr(", enemy "); LogNum(gBattleMons[o].types[0]); LogStr("/"); LogNum(gBattleMons[o].types[1]);
+            LogStr("; scale x256 player "); LogNum(GetSpriteDisplayScale(gBattlerSpriteIds[p]));
+            LogStr(", enemy "); LogNum(GetSpriteDisplayScale(gBattlerSpriteIds[o])); LogStr("\n");
+            Check(gBattleMons[p].types[0] == TYPE_ELECTRIC && gBattleMons[p].types[1] == TYPE_FIRE
+                  && gBattleMons[o].types[0] == TYPE_FIRE && gBattleMons[o].types[1] == TYPE_ELECTRIC, "battle typing: one type from each parent");
+            Check(GetSpriteDisplayScale(gBattlerSpriteIds[p]) == 512 && GetSpriteDisplayScale(gBattlerSpriteIds[o]) == 128,
+                  "battle sprites: 2x and 0.5x");
+            Shot("xb_battle_liger_vs_tigon");
+        }
+        if (t == 10) Press(A_BUTTON);           // FIGHT
+        if (t == 40) Press(A_BUTTON);           // Ember
+        if (t == 150) Shot("xb_battle_ember");
+        if (t == 210) Shot("xb_battle_ember_b");
+        if (t > 300 && t < 800 && (t % 60) == 0) Press(B_BUTTON);
+        if (t >= 810)
+        {
+            u32 k = (t - 810) % 240;
+            if (k == 0) Press(DPAD_RIGHT);
+            if (k == 10) Press(DPAD_DOWN);
+            if (k == 20) Press(A_BUTTON);
+            if (k > 30 && (k % 50) == 0) Press(B_BUTTON);
+            if (FieldIdle() && t > 900) NextStage();
+            if (t > 810 + 240 * 20) { Check(FALSE, "could not run from the hybrid battle"); NextStage(); }
+        }
         break;
     }
 }
@@ -1346,6 +1862,7 @@ void EvoTest_Frame(void)
     case ST_EEVEE_CAPTURE: EeveeCapture(); break;
     case ST_CAPTURE_SAVES: if (FieldIdle()) CaptureSaves(); break;
     case ST_HYBRID: if (sSub != 0 || sTimer != 0 || FieldIdle()) Hybrid(); break;
+    case ST_CROSSBREED: Crossbreed(); break;
     case ST_DONE:
         LogNum(gEvoTest.checks); LogStr(" checks, "); LogNum(gEvoTest.fails); LogStr(" failed\n");
         gEvoTest.finished = gEvoTest.fails ? 2 : 1;

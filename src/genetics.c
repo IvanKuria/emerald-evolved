@@ -240,8 +240,17 @@ u32 GenomeSizeScale(const struct Genome *g, u32 personality)
 // pixels in an even pattern: 1x, 1.33x (3 -> 4 px), 1.6x (5 -> 8 px), 2x. The summary HEIGHT stays exact.
 u32 GenomeDisplayScale(const struct Genome *g, u32 personality, u32 maxScale)
 {
-    static const u16 steps[] = {256, 341, 409, 512};   // 65536 / step truncates to 256, 192, 160, 128 exactly
-    u32 s = GenomeSizeScale(g, personality), i, best = 0;
+    return GenomeDisplayScaleGrowth(g, personality, 256, maxScale);
+}
+
+// growth256: a hybrid's parent-of-origin growth (crossbreed.c), x256. Below 1x only hybrids get there: 0.75x drops every
+// 4th pixel and 0.5x every 2nd, the same even patterns. A normal Pokemon (scale >= 240) never rounds below 1x.
+u32 GenomeDisplayScaleGrowth(const struct Genome *g, u32 personality, u32 growth256, u32 maxScale)
+{
+    static const u16 steps[] = {128, 192, 256, 341, 409, 512};
+    u32 s = GenomeSizeScale(g, personality) * growth256 / 256, i, best = 0;
+    if (s > 512)
+        s = 512;
     for (i = 1; i < sizeof(steps) / sizeof(steps[0]); i++)
         if (steps[i] <= maxScale && s * s >= (u32)steps[i - 1] * steps[i])   // nearest step on a log scale
             best = i;

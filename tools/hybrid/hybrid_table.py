@@ -31,6 +31,8 @@ RAMP_SPECIES = [
     'chikorita', 'bayleef', 'meganium', 'cyndaquil', 'quilava', 'typhlosion', 'totodile', 'croconaw', 'feraligatr',
     'treecko', 'grovyle', 'sceptile', 'torchic', 'combusken', 'blaziken', 'mudkip', 'marshtomp', 'swampert',
     'pichu', 'pikachu', 'raichu', 'eevee',
+    # crossbreed (xg-core): the Route 117 wild-hybrid pairs (Illumise x Volbeat, Poochyena x Seedot lines)
+    'volbeat', 'illumise', 'poochyena', 'mightyena', 'seedot', 'nuzleaf', 'shiftry',
 ]
 
 

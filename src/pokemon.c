@@ -1,6 +1,7 @@
 #include "global.h"
 #include "genetics.h"
 #include "hybrid_sprite.h"
+#include "crossbreed.h"
 #include "genetics_palette.h"
 #include "malloc.h"
 #include "apprentice.h"
@@ -1590,7 +1591,7 @@ void GiveBoxMonInitialMoveset(struct BoxPokemon *boxMon) //Credit: AsparagusEdua
     s32 i;
     enum Move moves[MAX_MON_MOVES] = {MOVE_NONE};
     u8 addedMoves = 0;
-    const struct LevelUpMove *learnset = GetSpeciesLevelUpLearnset(species);
+    const struct LevelUpMove *learnset = CrossbreedLearnset(boxMon, species);   // crossbreed: both parents' moves
 
     for (i = 0; learnset[i].move != LEVEL_UP_MOVE_END; i++)
     {
@@ -1643,7 +1644,7 @@ void GiveBoxMonDefaultMove(struct BoxPokemon *boxMon, u32 slot)
 {
     enum Move move = MOVE_NONE;
     enum Species species = GetBoxMonData(boxMon, MON_DATA_SPECIES);
-    const struct LevelUpMove *learnset = GetSpeciesLevelUpLearnset(species);
+    const struct LevelUpMove *learnset = CrossbreedLearnset(boxMon, species);
     s32 level = GetLevelFromBoxMonExp(boxMon);
     for (u32 i = 0; learnset[i].move != LEVEL_UP_MOVE_END; i++)
     {
@@ -1676,7 +1677,7 @@ enum Move MonTryLearningNewMoveAtLevel(struct Pokemon *mon, bool32 firstMove, u3
 {
     enum Move retVal = MOVE_NONE;
     enum Species species = GetMonData(mon, MON_DATA_SPECIES);
-    const struct LevelUpMove *learnset = GetSpeciesLevelUpLearnset(species);
+    const struct LevelUpMove *learnset = CrossbreedLearnset(&mon->box, species);   // crossbreed: both parents' moves
 
     // since you can learn more than one move per level
     // the game needs to know whether you decided to
@@ -2112,6 +2113,56 @@ void SetBoxMonGenome(struct BoxPokemon *boxMon, const struct Genome *genome)
     EncryptBoxMon(boxMon);
 }
 
+// ---- crossbreed lineage (GAME_REPORT.md). 21 bits, in fields this ROM no longer uses:
+//  donor[0] (newest father: colours + part), national dex no. of its species, 10 bits: sub1 evolutionTracker1 (low 5)
+//      + evolutionTracker2 (high 5)
+//  donor[1] (an older donor: a second part), 10 bits: sub0 nickname12 (low 8) + header daysSinceFormChange bits 0-1
+//  fertile, 1 bit: header daysSinceFormChange bit 2
+// Every reader/writer of those fields is neutralised above (MON_DATA_EVOLUTION_TRACKER, _DAYS_SINCE_FORM_CHANGE,
+// _GENERATION is char 11 only), so nothing else in the engine can write them.
+void GetBoxMonLineage(const struct BoxPokemon *boxMon, struct Lineage *lineage)
+{
+    struct BoxPokemon copy = *boxMon;
+    struct PokemonSubstruct0 *s0;
+    struct PokemonSubstruct1 *s1;
+    u32 d0, d1;
+
+    memset(lineage, 0, sizeof(*lineage));
+    if (!copy.hasSpecies)
+        return;
+    DecryptBoxMon(&copy);
+    s0 = GetSubstruct0(&copy);
+    s1 = GetSubstruct1(&copy);
+    d0 = s1->evolutionTracker1 | (s1->evolutionTracker2 << 5);
+    d1 = s0->nickname12 | ((copy.daysSinceFormChange & 3) << 8);
+    lineage->donor[0] = d0 ? NationalPokedexNumToSpecies(d0) : SPECIES_NONE;
+    lineage->donor[1] = d1 ? NationalPokedexNumToSpecies(d1) : SPECIES_NONE;
+    if (lineage->donor[0] == SPECIES_NONE)   // donor[0] is always filled first
+        lineage->donor[1] = SPECIES_NONE;
+    lineage->fertile = (copy.daysSinceFormChange >> 2) & 1;
+}
+
+void SetBoxMonLineage(struct BoxPokemon *boxMon, const struct Lineage *lineage)
+{
+    struct PokemonSubstruct0 *s0;
+    struct PokemonSubstruct1 *s1;
+    u32 d0 = lineage->donor[0] ? SpeciesToNationalPokedexNum(lineage->donor[0]) : 0;
+    u32 d1 = (lineage->donor[0] && lineage->donor[1]) ? SpeciesToNationalPokedexNum(lineage->donor[1]) : 0;
+
+    if (d0 > 1023) d0 = 0;   // 10 bits: every species up to dex no. 1023 (Terapagos/Pecharunt can't be donors)
+    if (d1 > 1023) d1 = 0;
+    DecryptBoxMon(boxMon);
+    if (CalculateBoxMonChecksum(boxMon) != boxMon->checksum) { EncryptBoxMon(boxMon); return; }
+    s0 = GetSubstruct0(boxMon);
+    s1 = GetSubstruct1(boxMon);
+    s1->evolutionTracker1 = d0 & 31;
+    s1->evolutionTracker2 = d0 >> 5;
+    s0->nickname12 = d1 & 0xFF;
+    boxMon->daysSinceFormChange = (d1 >> 8) | ((lineage->fertile ? 1 : 0) << 2);
+    boxMon->checksum = CalculateBoxMonChecksum(boxMon);
+    EncryptBoxMon(boxMon);
+}
+
 u32 GetBoxMonData3(struct BoxPokemon *boxMon, s32 field, u8 *data)
 {
     s32 i;
@@ -2480,19 +2531,10 @@ u32 GetBoxMonData3(struct BoxPokemon *boxMon, s32 field, u8 *data)
             }
             break;
         case MON_DATA_EVOLUTION_TRACKER:
-            {
-                struct PokemonSubstruct1 *substruct1 = GetSubstruct1(boxMon);
-                retVal = (union EvolutionTracker) {
-                    .tracker1 = substruct1->evolutionTracker1,
-                    .tracker2 = substruct1->evolutionTracker2,
-                }.combinedValue;
-            }
+            retVal = 0; // crossbreed: the tracker bits hold the hybrid lineage (GetBoxMonLineage); no tracker evolutions
             break;
-        case MON_DATA_GENERATION:   // Emerald Evolved: nickname chars 11-12 hold the generation (nicknames are 10 long)
-            {
-                struct PokemonSubstruct0 *substruct0 = GetSubstruct0(boxMon);
-                retVal = substruct0->nickname11 | (substruct0->nickname12 << 8);
-            }
+        case MON_DATA_GENERATION:   // Emerald Evolved: nickname char 11 holds the generation (0-255; char 12 = lineage)
+            retVal = GetSubstruct0(boxMon)->nickname11;
             break;
         default:
             break;
@@ -2558,7 +2600,7 @@ u32 GetBoxMonData3(struct BoxPokemon *boxMon, s32 field, u8 *data)
             break;
         }
         case MON_DATA_DAYS_SINCE_FORM_CHANGE:
-            retVal = boxMon->daysSinceFormChange;
+            retVal = 0; // crossbreed: these 3 bits hold the hybrid lineage; no timed form reverts (Furfrou, Hoopa)
             break;
         default:
             break;
@@ -2902,19 +2944,11 @@ void SetBoxMonData(struct BoxPokemon *boxMon, s32 field, const void *dataArg)
             // realgen: genome bits (tera type follows the personality)
             break;
         case MON_DATA_EVOLUTION_TRACKER:
-        {
-            union EvolutionTracker evoTracker;
-            struct PokemonSubstruct1 *substruct1 = GetSubstruct1(boxMon);
-            SET32(evoTracker.combinedValue);
-            substruct1->evolutionTracker1 = evoTracker.tracker1;
-            substruct1->evolutionTracker2 = evoTracker.tracker2;
-            break;
-        }
+            break;   // crossbreed: lineage bits (SetBoxMonLineage)
         case MON_DATA_GENERATION:
         {
-            struct PokemonSubstruct0 *substruct0 = GetSubstruct0(boxMon);
-            substruct0->nickname11 = data[0];
-            substruct0->nickname12 = data[1];
+            u32 gen = data[0] | (data[1] << 8);
+            GetSubstruct0(boxMon)->nickname11 = gen > 255 ? 255 : gen;   // char 12 is lineage now
             break;
         }
         default:
@@ -2983,8 +3017,7 @@ void SetBoxMonData(struct BoxPokemon *boxMon, s32 field, const void *dataArg)
             break;
         }
         case MON_DATA_DAYS_SINCE_FORM_CHANGE:
-            SET8(boxMon->daysSinceFormChange);
-            break;
+            break;   // crossbreed: lineage bits (SetBoxMonLineage)
         }
     }
 
@@ -3000,6 +3033,8 @@ void CopyMon(void *dest, void *src, size_t size)
 u8 GiveCapturedMonToPlayer(struct Pokemon *mon)
 {
     s32 i;
+
+    IdentifyHybrid(mon);
 
     SetMonData(mon, MON_DATA_OT_NAME, gSaveBlock2Ptr->playerName);
     SetMonData(mon, MON_DATA_OT_GENDER, &gSaveBlock2Ptr->playerGender);
@@ -3459,6 +3494,12 @@ void PokemonToBattleMon(struct Pokemon *src, struct BattlePokemon *dst)
     dst->types[0] = GetSpeciesType(dst->species, 0);
     dst->types[1] = GetSpeciesType(dst->species, 1);
     dst->types[2] = TYPE_MYSTERY;
+    {   // crossbreed: a hybrid has one type from each parent
+        u8 t1, t2;
+        GetBoxMonBattleTypes(&src->box, dst->species, &t1, &t2);
+        dst->types[0] = t1;
+        dst->types[1] = t2;
+    }
     dst->isShiny = IsMonShiny(src);
     dst->affectionHearts = GetMonAffectionHearts(src);
     dst->ability = GetAbilityBySpecies(dst->species, dst->abilityNum);

@@ -1,4 +1,5 @@
 #include "global.h"
+#include "crossbreed.h"
 #include "battle.h"
 #include "battle_controllers.h"
 #include "battle_ai_main.h"
@@ -636,7 +637,7 @@ void SetBattlerGeneticSize(enum BattlerId battler)
         return;
     species = GetMonData(mon, MON_DATA_SPECIES);
     GetBoxMonGenome(&mon->box, &g);
-    scale = GenomeDisplayScale(&g, GetMonData(mon, MON_DATA_PERSONALITY), 512);
+    scale = BoxMonDisplayScale(&mon->box, 512);   // genes x a hybrid's parent-of-origin growth
     bottom = MON_PIC_HEIGHT / 2 - (IsOnPlayerSide(battler) ? gSpeciesInfo[species].backPicYOffset : gSpeciesInfo[species].frontPicYOffset);
     matrixNum = (gSprites[spriteId].oam.affineMode & ST_OAM_AFFINE_ON_MASK) ? gSprites[spriteId].oam.matrixNum
                                                                             : gBattleSpritesDataPtr->healthBoxesData[battler].matrixNum;

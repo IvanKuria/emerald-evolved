@@ -14,6 +14,7 @@
 //      slots filled from the shiny base.
 #include "global.h"
 #include "hybrid_sprite.h"
+#include "crossbreed.h"
 #include "decompress.h"
 #include "genetics_palette.h"
 #include "malloc.h"
@@ -91,8 +92,23 @@ bool32 GetBoxMonHybridLook(const struct BoxPokemon *boxMon, struct HybridLook *l
         }
     }
 #endif
-    // TODO(feature 2, cross-species eggs): read the father / part species from the genome's lineage once it is stored.
-    return FALSE;
+    {   // crossbreed lineage: colours from the newest father, parts in draw order oldest first (bulb, then ears)
+        struct Lineage l;
+        GetBoxMonLineage(boxMon, &l);
+        if (!LineageIsHybrid(&l))
+            return FALSE;
+        look->colourSpecies = l.donor[0];
+        if (l.donor[1] != SPECIES_NONE)
+        {
+            look->partSpecies[0] = l.donor[1];
+            look->partSpecies[1] = l.donor[0];
+        }
+        else
+        {
+            look->partSpecies[0] = l.donor[0];
+        }
+        return TRUE;
+    }
 }
 
 // ---------------------------------------------------------------- small helpers

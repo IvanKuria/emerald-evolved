@@ -1,4 +1,5 @@
 #include "global.h"
+#include "crossbreed.h"
 #include "genetics.h"
 #include "pokemon.h"
 #include "battle.h"
@@ -924,16 +925,11 @@ static s32 GetClonedParentSlot(struct DayCare *daycare)
     return -1;
 }
 
-// realgen species barrier: two Pokémon breed only within one evolution family. Nidoran and Volbeat/Illumise are one
-// species split by sex, and regional forms share their family.
+// realgen: one evolution family = one species. Nidoran is one species split by sex; regional forms share their family.
+// crossbreed: Volbeat and Illumise are two related species now (GAME_SPEC feature 8), so their egg is a hybrid.
 static enum Species GetBreedingFamily(enum Species species)
 {
-    species = GET_BASE_SPECIES_ID(GetEggSpecies(species));
-    if (species == SPECIES_NIDORAN_M)
-        species = SPECIES_NIDORAN_F;
-    else if (species == SPECIES_VOLBEAT)
-        species = SPECIES_ILLUMISE;
-    return species;
+    return CrossbreedFamily(species);
 }
 
 static enum Species DetermineEggSpeciesAndParentSlots(struct DayCare *daycare, u8 *parentSlots)
@@ -983,8 +979,7 @@ static enum Species DetermineEggSpeciesAndParentSlots(struct DayCare *daycare, u
     // female line; pick the line 50/50 instead (upstream fix: PR #10846)
     else if (eggSpecies == SPECIES_NIDORAN_F || eggSpecies == SPECIES_NIDORAN_M)
         eggSpecies = (Random() & 1) ? SPECIES_NIDORAN_M : SPECIES_NIDORAN_F;
-    else if (eggSpecies == SPECIES_ILLUMISE || eggSpecies == SPECIES_VOLBEAT)
-        eggSpecies = (Random() & 1) ? SPECIES_VOLBEAT : SPECIES_ILLUMISE;
+    // crossbreed: no Volbeat/Illumise coin flip; Illumise x Volbeat is a hybrid with its mother's body
     else if (eggSpecies == SPECIES_MANAPHY)
         eggSpecies = SPECIES_PHIONE;
     else if (GET_BASE_SPECIES_ID(eggSpecies) == SPECIES_ROTOM)
@@ -1031,20 +1026,42 @@ static void _GiveEggFromDaycare(struct DayCare *daycare)
         // its sex (the clone's personality is drawn with the parent's gender) and ability slot.
         struct Genome mother, father, child;
         s32 cloned = GetClonedParentSlot(daycare);
+        struct Lineage lineage;
+        bool32 hybrid = FALSE;
         if (cloned >= 0)
         {
             GetBoxMonGenome(&daycare->mons[cloned].mon, &mother);
             CloneGenome(&child, &mother);
             SetInitialEggData(&egg, species, daycare, GetBoxMonGender(&daycare->mons[cloned].mon));
+            GetBoxMonLineage(&daycare->mons[cloned].mon, &lineage);   // a Ditto clone of a hybrid is the same hybrid
+            hybrid = LineageIsHybrid(&lineage);
         }
         else
         {
-            GetBoxMonGenome(&daycare->mons[parentSlots[0]].mon, &mother);   // parentSlots[0] is the female
-            GetBoxMonGenome(&daycare->mons[parentSlots[1]].mon, &father);
+            struct BoxPokemon *mum = &daycare->mons[parentSlots[0]].mon, *dad = &daycare->mons[parentSlots[1]].mon;
+            GetBoxMonGenome(mum, &mother);   // parentSlots[0] is the female
+            GetBoxMonGenome(dad, &father);
             InheritGenome(&child, &mother, &father);
             SetInitialEggData(&egg, species, daycare, MON_GENDER_RANDOM);
+            // crossbreed: two families (or a hybrid mother) make a hybrid: the mother's body, the father's colours,
+            // a part, a type and moves. A three-species attempt is laid but rarely hatches (rolled now, like the
+            // speciation roll, so it can't be re-rolled at hatch time).
+            if (GetBreedingFamily(GetBoxMonData(mum, MON_DATA_SPECIES)) != GetBreedingFamily(GetBoxMonData(dad, MON_DATA_SPECIES))
+             || IsBoxMonHybrid(mum))
+            {
+                u32 hatch256;
+                MakeChildLineage(mum, dad, species, GetMonGender(&egg) == MON_FEMALE, &lineage, &hatch256);
+                hybrid = LineageIsHybrid(&lineage);
+                if (hatch256 < 256 && (Random() & 0xFF) >= hatch256)
+                    child.dead = TRUE;
+            }
         }
         SetBoxMonGenome(&egg.box, &child);
+        if (hybrid)
+        {
+            SetBoxMonLineage(&egg.box, &lineage);
+            GiveBoxMonInitialMoveset(&egg.box);   // its level-1 moves from both sides
+        }
         CalculateMonStats(&egg);
         InheritPokeball(&egg, daycare);
         BuildEggMoveset(&egg, &daycare->mons[parentSlots[1]].mon, &daycare->mons[parentSlots[0]].mon);
@@ -1277,7 +1294,7 @@ u8 GetDaycareState(void)
 
 // Determine if the two given egg group lists contain any of the
 // same egg groups.
-static bool8 EggGroupsOverlap(u16 *eggGroups1, u16 *eggGroups2)
+static bool8 UNUSED EggGroupsOverlap(u16 *eggGroups1, u16 *eggGroups2)
 {
     s32 i, j;
 
@@ -1316,6 +1333,11 @@ u8 GetDaycareCompatibilityScore(struct DayCare *daycare)
     // check unbreedable egg group
     if (eggGroups[0][0] == EGG_GROUP_NO_EGGS_DISCOVERED || eggGroups[1][0] == EGG_GROUP_NO_EGGS_DISCOVERED)
         return PARENTS_INCOMPATIBLE;
+    // crossbreed, Haldane's rule: a male hybrid never makes an egg, with anyone (Ditto too); a female hybrid only if
+    // she is fertile (rolled at her own conception from her parents' chromosome gap)
+    for (i = 0; i < DAYCARE_MON_COUNT; i++)
+        if (!IsBoxMonFertile(&daycare->mons[i].mon))
+            return PARENTS_INCOMPATIBLE;
     // two Ditto can't breed
     if (eggGroups[0][0] == EGG_GROUP_DITTO && eggGroups[1][0] == EGG_GROUP_DITTO)
         return PARENTS_INCOMPATIBLE;
@@ -1335,10 +1357,11 @@ u8 GetDaycareCompatibilityScore(struct DayCare *daycare)
             return PARENTS_INCOMPATIBLE;
         if (genders[0] == MON_GENDERLESS || genders[1] == MON_GENDERLESS)
             return PARENTS_INCOMPATIBLE;
-        if (!EggGroupsOverlap(eggGroups[0], eggGroups[1]))
-            return PARENTS_INCOMPATIBLE;
-        if (GetBreedingFamily(species[0]) != GetBreedingFamily(species[1]))
-            return PARENTS_INCOMPATIBLE;
+        // crossbreed: two different species can make an egg whatever their egg groups ("The two don't seem to like
+        // each other much"); so can a fertile hybrid female with anyone. Same species: the speciation score below.
+        if (GetBreedingFamily(species[0]) != GetBreedingFamily(species[1])
+         || IsBoxMonHybrid(&daycare->mons[0].mon) || IsBoxMonHybrid(&daycare->mons[1].mon))
+            return PARENTS_LOW_COMPATIBILITY;
         // realgen speciation (sim/SPECIATION.md): within a family the score comes from the speciation loci, not the
         // OT. 70 / 50 / 20 / 0 for 0 / 1 / 2 / 3+ completed opposite Dobzhansky-Muller pairs.
         {

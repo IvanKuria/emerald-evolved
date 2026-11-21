@@ -1,4 +1,5 @@
 #include "global.h"
+#include "crossbreed.h"
 #include "battle_setup.h"
 #include "battle_pike.h"
 #include "battle_pyramid.h"
@@ -579,6 +580,17 @@ bool8 TryGenerateWildMon(const struct WildPokemonInfo *wildMonInfo, enum WildPok
         return FALSE;
 
     CreateWildMon(wildMonInfo->wildPokemon[wildMonIndex].species, level);
+    // crossbreed: where two related species share this table, now and then a wild one is their hybrid
+    if ((area == WILD_AREA_LAND || area == WILD_AREA_WATER)
+     && gMapHeader.mapLayoutId != LAYOUT_BATTLE_FRONTIER_BATTLE_PIKE_ROOM_WILD_MONS
+     && gMapHeader.mapLayoutId != LAYOUT_BATTLE_FRONTIER_BATTLE_PYRAMID_FLOOR)
+    {
+        u16 table[NUM_LAND_MONS_ENCOUNTER_SLOTS];
+        u32 i, n = (area == WILD_AREA_LAND) ? NUM_LAND_MONS_ENCOUNTER_SLOTS : NUM_WATER_MONS_ENCOUNTER_SLOTS;
+        for (i = 0; i < n; i++)
+            table[i] = wildMonInfo->wildPokemon[i].species;
+        TryMakeWildHybridFromTable(&gParties[B_TRAINER_OPPONENT_A][0], table, n);
+    }
     return TRUE;
 }
 

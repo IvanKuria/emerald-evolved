@@ -93,6 +93,8 @@ Route117_PokemonDayCare_EventScript_GiveMonToRaise::
 	specialvar VAR_RESULT, CountPartyAliveNonEggMons_IgnoreVar0x8004Slot
 	goto_if_eq VAR_RESULT, 0, Route117_PokemonDayCare_EventScript_OnlyOneAliveMon
 	specialvar VAR_0x8005, GetSelectedMonNicknameAndSpecies
+	specialvar VAR_RESULT, CrossbreedIsSelectedMonMaleHybrid
+	goto_if_eq VAR_RESULT, TRUE, Route117_PokemonDayCare_EventScript_RefuseMaleHybrid
 	waitse
 	playmoncry VAR_0x8005, CRY_MODE_NORMAL
 	msgbox Route117_PokemonDayCare_Text_WellRaiseYourMon, MSGBOX_DEFAULT
@@ -102,6 +104,12 @@ Route117_PokemonDayCare_EventScript_GiveMonToRaise::
 	incrementgamestat GAME_STAT_USED_DAYCARE
 	specialvar VAR_RESULT, GetDaycareState
 	goto_if_eq VAR_RESULT, DAYCARE_ONE_MON, Route117_PokemonDayCare_EventScript_CanRaiseOneMore
+	release
+	end
+
+@ crossbreed (Haldane's rule): a male hybrid can never make an egg, so the Day Care won't take him
+Route117_PokemonDayCare_EventScript_RefuseMaleHybrid::
+	msgbox Route117_PokemonDayCare_Text_CantTakeMaleHybrid, MSGBOX_DEFAULT
 	release
 	end
 
@@ -399,6 +407,15 @@ Route117_PokemonDayCare_Text_YouHaveJustOneMon:
 
 Route117_PokemonDayCare_Text_TakeYourMonBack:
 	.string "Will you take your POKéMON back?$"
+
+Route117_PokemonDayCare_Text_CantTakeMaleHybrid:
+	.string "Oh, my. My husband just had a look\n"
+	.string "at your {STR_VAR_1}.\p"
+	.string "He says it's a hybrid boy. A hybrid\n"
+	.string "boy can never have an egg, dear,\l"
+	.string "no matter who he's paired with.\p"
+	.string "There's no point in leaving him with\n"
+	.string "us, I'm afraid.$"
 
 Route117_PokemonDayCare_Text_WhatWillYouBattleWith:
 	.string "If you leave me that POKéMON,\n"
