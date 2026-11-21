@@ -1039,15 +1039,18 @@ static void _GiveEggFromDaycare(struct DayCare *daycare)
         else
         {
             struct BoxPokemon *mum = &daycare->mons[parentSlots[0]].mon, *dad = &daycare->mons[parentSlots[1]].mon;
+            // crossbreed: two families (or a hybrid parent) make a hybrid: the mother's body, the father's colours,
+            // a part, a type and moves. A three-species attempt is laid but rarely hatches (rolled now, like the
+            // speciation roll, so it can't be re-rolled at hatch time).
+            bool32 cross = GetBreedingFamily(GetBoxMonData(mum, MON_DATA_SPECIES)) != GetBreedingFamily(GetBoxMonData(dad, MON_DATA_SPECIES))
+                        || IsBoxMonHybrid(mum) || IsBoxMonHybrid(dad);
+            if (cross)   // owner decision: a hybrid hatches at its MOTHER's own stage, no baby form (Pikachu, not Pichu)
+                species = GET_BASE_SPECIES_ID(GetBoxMonData(mum, MON_DATA_SPECIES));
             GetBoxMonGenome(mum, &mother);   // parentSlots[0] is the female
             GetBoxMonGenome(dad, &father);
             InheritGenome(&child, &mother, &father);
             SetInitialEggData(&egg, species, daycare, MON_GENDER_RANDOM);
-            // crossbreed: two families (or a hybrid mother) make a hybrid: the mother's body, the father's colours,
-            // a part, a type and moves. A three-species attempt is laid but rarely hatches (rolled now, like the
-            // speciation roll, so it can't be re-rolled at hatch time).
-            if (GetBreedingFamily(GetBoxMonData(mum, MON_DATA_SPECIES)) != GetBreedingFamily(GetBoxMonData(dad, MON_DATA_SPECIES))
-             || IsBoxMonHybrid(mum))
+            if (cross)
             {
                 u32 hatch256;
                 MakeChildLineage(mum, dad, species, GetMonGender(&egg) == MON_FEMALE, &lineage, &hatch256);
@@ -1358,9 +1361,11 @@ u8 GetDaycareCompatibilityScore(struct DayCare *daycare)
         if (genders[0] == MON_GENDERLESS || genders[1] == MON_GENDERLESS)
             return PARENTS_INCOMPATIBLE;
         // crossbreed: two different species can make an egg whatever their egg groups ("The two don't seem to like
-        // each other much"); so can a fertile hybrid female with anyone. Same species: the speciation score below.
-        if (GetBreedingFamily(species[0]) != GetBreedingFamily(species[1])
-         || IsBoxMonHybrid(&daycare->mons[0].mon) || IsBoxMonHybrid(&daycare->mons[1].mon))
+        // each other much"); so can a fertile hybrid with anyone. Same species, or two members of one fertile hybrid
+        // line (they count as one kind: "The two seem to get along very well."): the speciation score below.
+        if (!AreBoxMonsSameHybridLine(&daycare->mons[0].mon, &daycare->mons[1].mon)
+         && (GetBreedingFamily(species[0]) != GetBreedingFamily(species[1])
+          || IsBoxMonHybrid(&daycare->mons[0].mon) || IsBoxMonHybrid(&daycare->mons[1].mon)))
             return PARENTS_LOW_COMPATIBILITY;
         // realgen speciation (sim/SPECIATION.md): within a family the score comes from the speciation loci, not the
         // OT. 70 / 50 / 20 / 0 for 0 / 1 / 2 / 3+ completed opposite Dobzhansky-Muller pairs.

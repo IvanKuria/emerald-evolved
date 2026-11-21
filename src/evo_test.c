@@ -1323,7 +1323,7 @@ static void Hybrid(void)
 // hybrid, the summary pages (chromosomes, parents, fertile heart, three type badges) and a battle of the two cross
 // directions (2x and 0.5x).
 static EWRAM_DATA struct Pokemon sXbPikaChar = {0}, sXbCharPika = {0}, sXbCharBulbF = {0}, sXbThree = {0}, sXbWild = {0};
-static EWRAM_DATA struct Pokemon sXbMaleHybrid = {0}, sXbEgg = {0};
+static EWRAM_DATA struct Pokemon sXbMaleHybrid = {0}, sXbEgg = {0}, sXbThreeM = {0};
 
 static void XbHybrid(struct Pokemon *mon, u16 body, u8 level, bool8 female, u16 donor0, u16 donor1, bool8 fertile)
 {
@@ -1439,8 +1439,8 @@ static void CrossbreedUnits(void)
     egg = DaycareEggOf(SPECIES_PIKACHU, SPECIES_CHARMANDER, &z, &z, FALSE);
     GetBoxMonLineage(&egg->box, &l);
     sXbEgg = *egg;
-    Check(GetMonData(egg, MON_DATA_SPECIES) == SPECIES_PICHU && l.donor[0] == SPECIES_CHARMANDER,
-          "Pikachu F x Charmander M egg: the mother's line hatches (Pichu), Charmander lineage");
+    Check(GetMonData(egg, MON_DATA_SPECIES) == SPECIES_PIKACHU && l.donor[0] == SPECIES_CHARMANDER,
+          "Pikachu F x Charmander M egg: hatches at the mother's own stage (Pikachu, no Pichu), Charmander lineage");
     ResetParty();
     egg = DaycareEggOf(SPECIES_ILLUMISE, SPECIES_VOLBEAT, &z, &z, FALSE);
     GetBoxMonLineage(&egg->box, &l);
@@ -1456,6 +1456,9 @@ static void CrossbreedUnits(void)
         Check(GetBoxMonHybridLook(&sXbThree.box, &look) && look.colourSpecies == SPECIES_PIKACHU
               && look.partSpecies[0] == SPECIES_BULBASAUR && look.partSpecies[1] == SPECIES_PIKACHU, "sprite look: three-species = Pikachu colours, bulb then ears");
         Check(!GetBoxMonHybridLook(&b.box, &look), "no look for a plain Pokemon");
+        Check(GetBoxMonHybridLook(&sXbCharPika.box, &look) && look.colourSpecies == SPECIES_PIKACHU
+              && look.partSpecies[0] == SPECIES_NONE && look.partSpecies[1] == SPECIES_NONE,
+              "sprite look: Charmander x Pikachu is colour-only (the owner's reference: no ears)");
     }
 
     // ---- feature 4: types
@@ -1494,8 +1497,10 @@ static void CrossbreedUnits(void)
     Check(BoxMonDisplayScale(&a.box, 512) == 256, "a plain Pikachu is drawn 1x (growth only acts in hybrids)");
 
     // ---- feature 7: Haldane's rule and fertility
-    XbHybrid(&sXbMaleHybrid, SPECIES_CHARMANDER, 20, FALSE, SPECIES_BULBASAUR, SPECIES_NONE, TRUE);
-    Check(IsBoxMonMaleHybrid(&sXbMaleHybrid.box) && !IsBoxMonFertile(&sXbMaleHybrid.box), "male hybrid is sterile even with the fertile bit");
+    XbHybrid(&sXbMaleHybrid, SPECIES_CHARMANDER, 20, FALSE, SPECIES_BULBASAUR, SPECIES_NONE, FALSE);
+    Check(IsBoxMonMaleHybrid(&sXbMaleHybrid.box) && !IsBoxMonFertile(&sXbMaleHybrid.box), "an F1 male hybrid is sterile");
+    XbHybrid(&sXbThreeM, SPECIES_CHARMANDER, 20, FALSE, SPECIES_PIKACHU, SPECIES_BULBASAUR, TRUE);
+    Check(!IsBoxMonMaleHybrid(&sXbThreeM.box) && IsBoxMonFertile(&sXbThreeM.box), "a male of a fertile line (three-species) is fertile");
     MakeMon(&a, SPECIES_CHARMANDER, 20, TRUE, &z, FALSE);
     Check(DaycareScore(&a, &sXbMaleHybrid) == PARENTS_INCOMPATIBLE, "male hybrid x female: no egg");
     MakeMon(&b, SPECIES_DITTO, 20, FALSE, &z, FALSE);
@@ -1509,6 +1514,7 @@ static void CrossbreedUnits(void)
     LogStr(", Charmander x Bulbasaur "); LogNum(HybridFertilityChance256(52, 48)); LogStr("\n");
     for (k = 0; k < 2; k++)
     {
+        u32 sons = 0, fertileSons = 0;
         females = fertile = 0;
         for (i = 0; i < 2000 && females < 60; i++)   // 60 daughters (Charmander is 1 in 8 female)
         {
@@ -1516,9 +1522,11 @@ static void CrossbreedUnits(void)
             egg = k == 0 ? DaycareEggOf(SPECIES_PIKACHU, SPECIES_CHARMANDER, &z, &z, FALSE)
                          : DaycareEggOf(SPECIES_CHARMANDER, SPECIES_BULBASAUR, &z, &z, FALSE);
             if (GetMonGender(egg) == MON_FEMALE) { females++; fertile += IsBoxMonFertile(&egg->box); }
+            else if (GetMonGender(egg) == MON_MALE) { sons++; fertileSons += IsBoxMonFertile(&egg->box); }
         }
         LogStr(k == 0 ? "  Pikachu x Charmander daughters fertile " : "  Charmander x Bulbasaur daughters fertile ");
-        LogNum(fertile); LogStr(" / "); LogNum(females); LogStr("\n");
+        LogNum(fertile); LogStr(" / "); LogNum(females); LogStr(", sons "); LogNum(fertileSons); LogStr(" / "); LogNum(sons); LogStr("\n");
+        Check(sons > 0 && fertileSons == 0, "F1 sons are all sterile (Haldane's rule)");
         if (k == 0) Check(fertile * 20 <= females, "Pikachu x Charmander daughters: fertility ~0 (the mule)");
         else Check(fertile * 5 >= females * 2 && fertile * 10 <= females * 9, "Charmander x Bulbasaur daughters: often fertile (67%; 40-90% of 60)");
     }
@@ -1543,13 +1551,36 @@ static void CrossbreedUnits(void)
         GetBoxMonLineage(&egg->box, &l);
         n = GetBoxMonHybridTypes(&egg->box, GetMonData(egg, MON_DATA_SPECIES), t);
         if (GetMonData(egg, MON_DATA_SPECIES) == SPECIES_CHARMANDER && l.donor[0] == SPECIES_PIKACHU && l.donor[1] == SPECIES_BULBASAUR
-         && n == 3 && (GetMonGender(egg) != MON_FEMALE || l.fertile))
+         && n == 3 && l.fertile)
             three++;
     }
     ClearDaycare();
     LogStr("  third-species eggs: "); LogNum(dead); LogStr(" never hatch, "); LogNum(hatched); LogStr(" hatch\n");
     Check(dead >= 150 && hatched >= 8 && hatched <= 45, "most third-species eggs fail; about 1 in 8 hatches");
-    Check(three == hatched, "every hatched one is Charmander body + Bulbasaur + Pikachu, 3 types, daughters fertile");
+    Check(three == hatched, "every hatched one is Charmander body + Bulbasaur + Pikachu, 3 types, fertile (sons too)");
+
+    // ---- owner decision: a fertile line breeds as one kind (score 70, normal eggs, into the line)
+    Check(AreBoxMonsSameHybridLine(&sXbThree.box, &sXbThreeM.box) && !AreBoxMonsSameHybridLine(&sXbThree.box, &sXbCharBulbF.box),
+          "two three-species hybrids are one line; a Charmander x Bulbasaur is not");
+    Check(DaycareScore(&sXbThree, &sXbThreeM) == PARENTS_MAX_COMPATIBILITY, "three-species F x three-species M: score 70 (\"get along very well\")");
+    for (i = 0, dead = 0, three = 0; i < 60; i++)
+    {
+        struct Genome g;
+        ResetParty();
+        SetDaycare(&sXbThree, &sXbThreeM);
+        TriggerPendingDaycareEgg();
+        GiveEggFromDaycare();
+        egg = &gPlayerParty[gPlayerPartyCount - 1];
+        GetBoxMonGenome(&egg->box, &g);
+        if (GenomeIsLethal(&g)) { dead++; continue; }
+        GetBoxMonLineage(&egg->box, &l);
+        if (GetMonData(egg, MON_DATA_SPECIES) == SPECIES_CHARMANDER && l.fertile
+         && AreBoxMonsSameHybridLine(&egg->box, &sXbThree.box))
+            three++;
+    }
+    ClearDaycare();
+    LogStr("  line x line eggs: "); LogNum(dead); LogStr(" fail (speciation mutations only), "); LogNum(three); LogStr(" in the line\n");
+    Check(dead <= 10 && three + dead == 60, "line x line: eggs hatch normally, every child is in the line and fertile");
     MakeMon(&b, SPECIES_CHARMANDER, 20, FALSE, &z, FALSE);
     for (i = 0, dead = 0; i < 40; i++)
     {
@@ -1682,7 +1713,7 @@ static void Crossbreed(void)
             if (state != 0xFF) sCount = 1;   // the hatch scene has started
             if (sCount == 0)
             {
-                if (!FieldIdle() && (sTimer % 45) == 0) Press(B_BUTTON);   // the hatch script's "Oh?"
+                if (!FieldIdle() && (sTimer % 45) == 0) Hold(B_BUTTON, 4);   // the hatch script's "Oh?"
                 if (FieldIdle() && (sTimer % 60) == 0)
                 {
                     struct ObjectEvent *pl = &gObjectEvents[gPlayerAvatar.objectEventId];
@@ -1699,11 +1730,19 @@ static void Crossbreed(void)
             if (state == 6 && ++sStateTicks == 50) Shot("xb_hatch_pikachu_x_charmander");
             if (sTimer > 30 && (state == 0xFF || state >= 9))
             {
-                if (MashBUntilIdle())
+                // the "nickname it?" YES/NO box: a held B (a one-frame tap can land between the menu's reads)
+                if (!FieldIdle() && (sTimer % 60) == 0) Hold(B_BUTTON, 4);
+                if (sTimer == 60 * 120) Shot("xb_after_hatch_stuck");
+                if ((sTimer > 60 && FieldIdle()) || sTimer > 60 * 120)
                 {
                     struct Lineage l;
                     GetBoxMonLineage(&gPlayerParty[1].box, &l);
-                    Check(!GetMonData(&gPlayerParty[1], MON_DATA_IS_EGG) && l.donor[0] == SPECIES_CHARMANDER, "the hybrid egg hatched, lineage intact");
+                    Check(!GetMonData(&gPlayerParty[1], MON_DATA_IS_EGG) && l.donor[0] == SPECIES_CHARMANDER
+                          && GetMonData(&gPlayerParty[1], MON_DATA_SPECIES) == SPECIES_PIKACHU, "the hybrid egg hatched as a Pikachu, lineage intact");
+                    LogStr("  hatchling: scale x256 "); LogNum(BoxMonDisplayScale(&gPlayerParty[1].box, 512));
+                    LogStr(", height cm "); LogNum(BoxMonHeightCm(&gPlayerParty[1].box)); LogStr("\n");
+                    Check(BoxMonDisplayScale(&gPlayerParty[1].box, 512) == 512 && BoxMonHeightCm(&gPlayerParty[1].box) > 60,
+                          "the hatchling is 2x and taller than both parents");
                     sSub = 3; sTimer = 0;
                 }
             }
@@ -1724,6 +1763,11 @@ static void Crossbreed(void)
             gSpecialVar_0x8004 = 0;
             CrossbreedIsSelectedMonMaleHybrid();
             Check(gSpecialVar_Result == FALSE, "deposit check: a female hybrid is taken");
+            gPlayerParty[0] = sXbThreeM;
+            gSpecialVar_0x8004 = 0;
+            CrossbreedIsSelectedMonMaleHybrid();
+            Check(gSpecialVar_Result == FALSE, "deposit check: a male of a fertile line is taken");
+            gPlayerParty[0] = sXbCharBulbF;
             gSpecialVar_0x8004 = 1;
             GetSelectedMonNicknameAndSpecies();
             ScriptContext_SetupScript(Route117_PokemonDayCare_EventScript_RefuseMaleHybrid);
@@ -1812,9 +1856,33 @@ static void Crossbreed(void)
             if (k == 10) Press(DPAD_DOWN);
             if (k == 20) Press(A_BUTTON);
             if (k > 30 && (k % 50) == 0) Press(B_BUTTON);
-            if (FieldIdle() && t > 900) { FlagClear(FLAG_BADGE08_GET); NextStage(); }
-            if (t > 810 + 240 * 20) { Check(FALSE, "could not run from the hybrid battle"); FlagClear(FLAG_BADGE08_GET); NextStage(); }
+            if (FieldIdle() && t > 900) { FlagClear(FLAG_BADGE08_GET); sSub = 6; sTimer = 0; }
+            if (t > 810 + 240 * 20) { Check(FALSE, "could not run from the hybrid battle"); FlagClear(FLAG_BADGE08_GET); sSub = 6; sTimer = 0; }
         }
+        break;
+    case 6:     // the video's last scene: two of the three-species line in the Day Care, the man's real line
+        if (sTimer == 1)
+        {
+            if (!FieldIdle()) { sTimer = 0; break; }
+            ResetParty();
+            gPlayerParty[0] = sXbPikaChar;
+            CalculatePlayerPartyCount();
+            SetDaycare(&sXbThree, &sXbThreeM);
+            Check(GetDaycareCompatibilityScore(&gSaveBlock1Ptr->daycare) == PARENTS_MAX_COMPATIBILITY,
+                  "Day Care man on two of the line: score 70 = \"The two seem to get along very well.\"");
+            ScriptContext_SetupScript(Route117_EventScript_CheckOnTwoMons);
+        }
+        // "Your CHARMANDER and CHARMANDER are doing fine." is printed by frame 100; A goes on to the compatibility line
+        if (sTimer == 100) Hold(A_BUTTON, 4);
+        if (sTimer == 150) Shot("xb_daycare_line_get_along");  // the compatibility line
+        if (sTimer == 190) Shot("xb_daycare_line_get_along_b");
+        if (sTimer > 200 && (sTimer % 40) == 0) Hold(A_BUTTON, 4);
+        if (sTimer > 260 && FieldIdle())
+        {
+            ClearDaycare();
+            NextStage();
+        }
+        if (sTimer > 1500) { Check(FALSE, "Day Care man script did not finish"); ClearDaycare(); NextStage(); }
         break;
     }
 }

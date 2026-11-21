@@ -34,9 +34,14 @@ bool32 IsBoxMonHybrid(const struct BoxPokemon *boxMon)
     return LineageIsHybrid(&l);
 }
 
-bool32 IsBoxMonMaleHybrid(const struct BoxPokemon *boxMon)
+// Haldane's rule applies to first crosses (F1): an F1 son is always sterile and the Day Care refuses him. Once a fertile
+// hybrid female founds a LINE (backcrosses, the three-species line), the line is fertile: its sons and daughters carry
+// the fertile bit and breed. So the fertile bit means "this hybrid can breed", for either sex; only F1 sons never get it.
+bool32 IsBoxMonMaleHybrid(const struct BoxPokemon *boxMon)   // a sterile (F1) male hybrid
 {
-    return IsBoxMonHybrid(boxMon) && GetBoxMonGender((struct BoxPokemon *)boxMon) == MON_MALE;
+    struct Lineage l;
+    GetBoxMonLineage(boxMon, &l);
+    return LineageIsHybrid(&l) && !l.fertile && GetBoxMonGender((struct BoxPokemon *)boxMon) == MON_MALE;
 }
 
 bool32 IsBoxMonFertile(const struct BoxPokemon *boxMon)
@@ -45,7 +50,36 @@ bool32 IsBoxMonFertile(const struct BoxPokemon *boxMon)
     GetBoxMonLineage(boxMon, &l);
     if (!LineageIsHybrid(&l))
         return TRUE;
-    return GetBoxMonGender((struct BoxPokemon *)boxMon) == MON_FEMALE && l.fertile;   // Haldane's rule
+    return l.fertile;
+}
+
+// Two hybrids of one line count as the same kind: same body family and the same donor families.
+bool32 AreBoxMonsSameHybridLine(const struct BoxPokemon *a, const struct BoxPokemon *b)
+{
+    struct Lineage la, lb;
+    u32 i, j, na = 0, nb = 0;
+
+    GetBoxMonLineage(a, &la);
+    GetBoxMonLineage(b, &lb);
+    if (!LineageIsHybrid(&la) || !LineageIsHybrid(&lb))
+        return FALSE;
+    if (CrossbreedFamily(GetBoxMonData((struct BoxPokemon *)a, MON_DATA_SPECIES)) != CrossbreedFamily(GetBoxMonData((struct BoxPokemon *)b, MON_DATA_SPECIES)))
+        return FALSE;
+    for (i = 0; i < LINEAGE_DONORS; i++)
+    {
+        bool32 found = FALSE;
+        if (la.donor[i] == SPECIES_NONE)
+            continue;
+        na++;
+        for (j = 0; j < LINEAGE_DONORS; j++)
+            if (lb.donor[j] != SPECIES_NONE && CrossbreedFamily(lb.donor[j]) == CrossbreedFamily(la.donor[i]))
+                found = TRUE;
+        if (!found)
+            return FALSE;
+    }
+    for (j = 0; j < LINEAGE_DONORS; j++)
+        nb += lb.donor[j] != SPECIES_NONE;
+    return na == nb;
 }
 
 // ---------------------------------------------------------------- feature 1: chromosomes
@@ -359,17 +393,20 @@ void MakeChildLineage(const struct BoxPokemon *mother, const struct BoxPokemon *
         AddDonor(c, body, lf.donor[i]);
     if (IsThirdSpeciesCross(mother, father))   // sons and daughters alike: most of these eggs never hatch
         *hatchChance256 = 256 / THIRD_SPECIES_HATCH_N;
-    if (!LineageIsHybrid(c) || !childIsFemale)
+    if (!LineageIsHybrid(c))
         return;
-    if (LineageIsHybrid(&lm))
+    if (!LineageIsHybrid(&lm) && CrossbreedFamily(dad) != CrossbreedFamily(GetBoxMonData((struct BoxPokemon *)mother, MON_DATA_SPECIES)))
     {
-        // the mother's line is already a working mix: her daughters are fertile (a three-species line breeds on)
-        c->fertile = TRUE;
+        // a first cross (F1): a pure mother and a father of another species. Haldane's rule: sons are sterile;
+        // daughters are fertile by the parents' chromosome gap.
+        if (childIsFemale)
+            c->fertile = (Random() & 0xFF) < HybridFertilityChance256(GetBoxMonChromosomes(mother), GetBoxMonChromosomes(father));
     }
     else
     {
-        u32 p = HybridFertilityChance256(GetBoxMonChromosomes(mother), GetBoxMonChromosomes(father));
-        c->fertile = (Random() & 0xFF) < p;
+        // inside a fertile line (a hybrid mother, or a pure mother of the line's own body with a line father; the
+        // three-species line too): the line is a working mix, so sons and daughters both breed
+        c->fertile = TRUE;
     }
 }
 

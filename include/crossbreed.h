@@ -28,7 +28,8 @@ u16 CrossbreedFamily(u16 species);                       // egg species of the f
 bool32 LineageIsHybrid(const struct Lineage *lineage);
 bool32 IsBoxMonHybrid(const struct BoxPokemon *boxMon);
 bool32 IsBoxMonMaleHybrid(const struct BoxPokemon *boxMon);
-bool32 IsBoxMonFertile(const struct BoxPokemon *boxMon);  // TRUE for every non-hybrid
+bool32 IsBoxMonFertile(const struct BoxPokemon *boxMon);  // TRUE for every non-hybrid; F1 sons never
+bool32 AreBoxMonsSameHybridLine(const struct BoxPokemon *a, const struct BoxPokemon *b);   // same body + donor families
 
 // Feature 1: chromosome counts
 u32 GetSpeciesChromosomes(u16 species);

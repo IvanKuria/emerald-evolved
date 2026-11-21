@@ -11,7 +11,7 @@ MAILBOX=$(awk '$2 == "gEvoTest" && $1 ~ /^0x/ { print $1; exit }' "$ROOT/pokeeme
 SCRIPT=$(mktemp -t crossbreed).lua
 { echo "MAILBOX = $MAILBOX"; echo "OUT = \"$OUT\""; cat "$ROOT/test/crossbreed/crossbreed.lua"; } > "$SCRIPT"
 set +e
-"$HOME/Tools/gba/mgba/bin/realgen-mgba" "$ROOT/pokeemerald_evotest.gba" --frames 40000 --script "$SCRIPT" 2>/dev/null | tee "$OUT/rom.log"
+"$HOME/Tools/gba/mgba/bin/realgen-mgba" "$ROOT/pokeemerald_evotest.gba" --frames 80000 --script "$SCRIPT" 2>/dev/null | tee "$OUT/rom.log"
 set -e
 rm -f "$SCRIPT"
 grep -q "rom test finished at frame .*: PASS" "$OUT/rom.log" || { echo "crossbreed ROM test did not pass"; exit 1; }

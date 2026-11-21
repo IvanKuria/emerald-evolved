@@ -105,7 +105,16 @@ bool32 GetBoxMonHybridLook(const struct BoxPokemon *boxMon, struct HybridLook *l
         }
         else
         {
+            // owner decision: a first cross with these (body, father) pairs is colour-only, matching the owner's
+            // reference art (hybrid_char_x_pika: "a small yellow Charmander"); the ears appear only in the
+            // three-species line, as in hybrid_three
+            static const u16 sColourOnly[][2] = {{SPECIES_CHARMANDER, SPECIES_PIKACHU}};
+            u16 body = GET_BASE_SPECIES_ID(GetBoxMonData((struct BoxPokemon *)boxMon, MON_DATA_SPECIES));
+            u32 i;
             look->partSpecies[0] = l.donor[0];
+            for (i = 0; i < ARRAY_COUNT(sColourOnly); i++)
+                if (sColourOnly[i][0] == body && sColourOnly[i][1] == l.donor[0])
+                    look->partSpecies[0] = SPECIES_NONE;
         }
         return TRUE;
     }
