@@ -13,6 +13,8 @@ void SetMonIconGenePalette(u8 spriteId, u16 species, u32 personality, u8 basePal
 void SetMonIconGenomeHint(const struct BoxPokemon *boxMon);
 // Genetic palette of the player's / Day Care / opponent Pokémon with this personality, else `base`.
 const u16 *GeneticPaletteForPersonality(u32 personality, const u16 *base);
+// The player's / Day Care / opponent Pokémon with this personality (any species), or NULL.
+const struct BoxPokemon *FindOwnedBoxMonByPersonality(u32 personality);
 // For mon-aware palette getters: returns `base`, or a recoloured copy in a small EWRAM ring (4 slots).
 const u16 *GeneticMonPalette(const struct BoxPokemon *boxMon, const u16 *base);
 #endif

@@ -2,6 +2,7 @@
 #include "malloc.h"
 #include "data.h"
 #include "decompress.h"
+#include "hybrid_sprite.h"
 #include "decompress_error_handler.h"
 #include "pokemon.h"
 #include "pokemon_spots.h"
@@ -1172,6 +1173,9 @@ void LoadSpecialPokePicIsEgg(void *dest, enum Species species, u32 personality, 
     {
         DrawPokemonSpotsBothFrames(personality, species, dest);
     }
+    // Emerald Evolved: a cross-breed hybrid is composited onto its body's pic (colours + transplanted parts)
+    if (!isEgg)
+        HybridApplyPic(dest, species, personality, isFrontPic);
 }
 
 void Unused_DecompressDataWithHeaderWramIndirect(const void **src, void *dest)

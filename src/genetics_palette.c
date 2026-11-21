@@ -368,6 +368,11 @@ static const struct BoxPokemon *FindOwnedBoxMon(u16 species, u32 personality)
     return NULL;
 }
 
+const struct BoxPokemon *FindOwnedBoxMonByPersonality(u32 personality)
+{
+    return FindOwnedBoxMon(SPECIES_NONE, personality);
+}
+
 const u16 *GeneticPaletteForPersonality(u32 personality, const u16 *base)
 {
     const struct BoxPokemon *boxMon = FindOwnedBoxMon(SPECIES_NONE, personality);

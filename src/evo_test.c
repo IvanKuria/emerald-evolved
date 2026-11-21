@@ -40,6 +40,8 @@
 #include "egg_hatch.h"
 #include "evolution_scene.h"
 #include "pokemon_storage_system.h"
+#include "hybrid_sprite.h"
+#include "decompress.h"
 
 extern const u8 Route117_EventScript_CheckOnTwoMons[];
 
@@ -221,7 +223,7 @@ static void LogMon(const char *label, struct Pokemon *mon)
     LogStr(" d(wild) "); LogNum(GenomeSpeciesDistance(&g, &(struct Genome){0})); LogStr("\n");
 }
 
-enum { ST_BOOT, ST_SETUP, ST_UNIT, ST_REPLICATES, ST_LINE, ST_DAYCARE, ST_EGGS, ST_HATCH, ST_DEAD_EGG, ST_SAVES, ST_FOLLOWER, ST_GRASS, ST_BATTLE, ST_PARTY, ST_EVOLVE, ST_PC, ST_EEVEE_STATS, ST_EEVEE_CAPTURE, ST_CAPTURE_SAVES, ST_DONE };
+enum { ST_BOOT, ST_SETUP, ST_UNIT, ST_REPLICATES, ST_LINE, ST_DAYCARE, ST_EGGS, ST_HATCH, ST_DEAD_EGG, ST_SAVES, ST_FOLLOWER, ST_GRASS, ST_BATTLE, ST_PARTY, ST_EVOLVE, ST_PC, ST_EEVEE_STATS, ST_EEVEE_CAPTURE, ST_CAPTURE_SAVES, ST_HYBRID, ST_DONE };
 
 static void Boot(void)
 {
@@ -242,6 +244,7 @@ static void Setup(void)
     NextStage();
     if (gEvoTest.pad == 1) { LogStr("[mode] Eevee script numbers only\n"); sStage = ST_EEVEE_STATS; }
     if (gEvoTest.pad == 2) { LogStr("[mode] Eevee capture line only\n"); sStage = ST_EEVEE_CAPTURE; }
+    if (gEvoTest.pad == 3) { LogStr("[mode] hybrid sprites only\n"); sStage = ST_HYBRID; }
 }
 
 // ---------------------------------------------------------------- pure logic checks
@@ -1164,6 +1167,139 @@ static void EeveeCapture(void)
     }
 }
 
+// ---------------------------------------------------------------- cross-breed hybrid sprites (GAME_SPEC feature 3)
+// Each hybrid is a real party Pokemon drawn through the game's own loaders (LoadSpecialPokePic + the species/personality
+// palette getter: what battle, summary, PC, trade and evolution use). Every pic + palette goes out through gHybridDump;
+// test/hybrid/run.sh decodes them and diffs them against the owner's reference PNGs. Then the hybrids are shown on real
+// screens (battle, summary) for screenshots.
+struct HybridDump { u32 magic; u16 seq; u16 pad; u8 name[32]; u16 pal[16]; u8 front[64 * 128 / 2]; u8 back[64 * 64 / 2]; };
+EWRAM_DATA struct HybridDump gHybridDump = {0};
+
+struct HybridCase { const char *name; u16 body; u16 colour; u16 part0, part1; };
+static const struct HybridCase sHybridCases[] =
+{   // = tools/hybrid/hybrid_table.py CASES, plus the plain species (no look: must be drawn untouched)
+    {"hybrid_pika_x_char", SPECIES_PIKACHU, SPECIES_CHARMANDER, SPECIES_CHARMANDER, SPECIES_NONE},
+    {"hybrid_char_x_pika", SPECIES_CHARMANDER, SPECIES_PIKACHU, SPECIES_NONE, SPECIES_NONE},
+    {"hybrid_char_x_bulb", SPECIES_CHARMANDER, SPECIES_BULBASAUR, SPECIES_BULBASAUR, SPECIES_NONE},
+    {"hybrid_three", SPECIES_CHARMANDER, SPECIES_PIKACHU, SPECIES_BULBASAUR, SPECIES_PIKACHU},
+    {"charmander", SPECIES_CHARMANDER, SPECIES_NONE, SPECIES_NONE, SPECIES_NONE},
+    {"pikachu", SPECIES_PIKACHU, SPECIES_NONE, SPECIES_NONE, SPECIES_NONE},
+};
+
+static void HybridDumpMon(const char *name, struct Pokemon *mon)
+{
+    u16 species = GetMonData(mon, MON_DATA_SPECIES);
+    u32 personality = GetMonData(mon, MON_DATA_PERSONALITY), i;
+    LoadSpecialPokePic(gHybridDump.front, species, personality, TRUE);
+    LoadSpecialPokePic(gHybridDump.back, species, personality, FALSE);
+    CpuCopy16(GetMonSpritePalFromSpeciesAndPersonality(species, FALSE, personality), gHybridDump.pal, sizeof(gHybridDump.pal));
+    for (i = 0; name[i] && i < 31; i++) gHybridDump.name[i] = name[i];
+    gHybridDump.name[i] = 0;
+    gHybridDump.magic = 0x44425948;     // "HYBD"
+    gHybridDump.seq++;
+    LogStr("  dump  "); LogStr(name); LogStr("\n");
+}
+
+static void HybridParty(void)
+{
+    u32 i;
+    struct Genome g = {0};          // wild type: no coat / hue / shiny gene on top of the hybrid colours
+    ResetParty();
+    HybridSetTestLook(0, NULL);
+    for (i = 0; i < ARRAY_COUNT(sHybridCases) && i < PARTY_SIZE; i++)
+    {
+        const struct HybridCase *c = &sHybridCases[i];
+        MakeMon(&gPlayerParty[i], c->body, 20, FALSE, &g, FALSE);   // male: Pikachu keeps its default (non-female) art
+        if (c->colour != SPECIES_NONE || c->part0 != SPECIES_NONE)
+        {
+            struct HybridLook look = {c->colour, {c->part0, c->part1}};
+            HybridSetTestLook(GetMonData(&gPlayerParty[i], MON_DATA_PERSONALITY), &look);
+        }
+    }
+    CalculatePlayerPartyCount();
+}
+
+static void Hybrid(void)
+{
+    u32 t;
+    sTimer++;
+    switch (sSub)
+    {
+    case 0:     // pixel dumps through the real loaders
+        if (sTimer == 1)
+        {
+            LogStr("[hybrid] cross-breed sprites through LoadSpecialPokePic + the palette getter\n");
+            HybridParty();
+        }
+        if (sTimer >= 10 && (sTimer % 10) == 0)
+        {
+            u32 i = sTimer / 10 - 1;
+            if (i < ARRAY_COUNT(sHybridCases))
+            {
+                struct HybridLook look;
+                bool32 isHybrid = GetBoxMonHybridLook(&gPlayerParty[i].box, &look);
+                Check(isHybrid == (sHybridCases[i].colour != SPECIES_NONE), sHybridCases[i].name);
+                HybridDumpMon(sHybridCases[i].name, &gPlayerParty[i]);
+            }
+            else
+            {
+                struct HybridLook look;
+                Check(GetBoxMonHybridLook(&gPlayerParty[3].box, &look) && look.partSpecies[1] == SPECIES_PIKACHU,
+                      "three-species look has both parts");
+                sSub = 1; sTimer = 0;
+            }
+        }
+        break;
+    case 1:     // battle: hybrid_three from the back (player), hybrid_pika_x_char from the front (opponent)
+        if (sTimer == 1)
+        {
+            struct Pokemon lead = gPlayerParty[3];
+            ZeroEnemyPartyMons();
+            gEnemyParty[0] = gPlayerParty[0];   // same personality -> same look (FindOwnedBoxMon checks the enemy party too)
+            gPlayerParty[3] = gPlayerParty[0];
+            gPlayerParty[0] = lead;
+            SetMoves(&gPlayerParty[0], MOVE_GROWL);
+            SetMoves(&gEnemyParty[0], MOVE_GROWL);
+            BattleSetup_StartWildBattle();
+        }
+        if (sTimer < 60 * 12 && (sTimer % 90) == 0) Press(B_BUTTON);
+        if (sTimer < 60 * 12) break;
+        t = sTimer - 60 * 12;
+        if (t == 0) Shot("hybrid_battle");
+        if (t >= 10)
+        {
+            u32 k = (t - 10) % 240;
+            if (k == 0) Press(DPAD_RIGHT);
+            if (k == 10) Press(DPAD_DOWN);
+            if (k == 20) Press(A_BUTTON);       // RUN (retry)
+            if (k > 30 && (k % 50) == 0) Press(B_BUTTON);
+            if (FieldIdle() && t > 100) { sSub = 2; sTimer = 0; }
+            if (t > 240 * 20) { Check(FALSE, "could not run from the hybrid battle"); sSub = 2; sTimer = 0; }
+        }
+        break;
+    case 2:     // summary screen of the three-species hybrid (party slot 1 after the swap)
+        if (!FieldIdle() && sTimer < 5) { sTimer = 0; break; }
+        if (sTimer == 10) Press(START_BUTTON);
+        if (sTimer == 40) Press(DPAD_DOWN);
+        if (sTimer == 60) Press(A_BUTTON);       // POKeMON
+        if (sTimer == 160) Shot("hybrid_party_menu");
+        if (sTimer == 170) Press(A_BUTTON);      // first mon
+        if (sTimer == 200) Press(A_BUTTON);      // SUMMARY
+        if (sTimer == 330) Shot("hybrid_summary_three");
+        if (sTimer == 340) Press(DPAD_DOWN);
+        if (sTimer == 460) Shot("hybrid_summary_char_x_pika");
+        if (sTimer == 470) Press(DPAD_DOWN);
+        if (sTimer == 590) Shot("hybrid_summary_char_x_bulb");
+        if (sTimer == 600) Press(DPAD_DOWN);
+        if (sTimer == 720) Shot("hybrid_summary_pika_x_char");
+        if (sTimer == 730) Press(B_BUTTON);
+        if (sTimer == 800) Press(B_BUTTON);
+        if (sTimer == 860) Press(B_BUTTON);
+        if (sTimer > 900 && MashBUntilIdle()) { HybridSetTestLook(0, NULL); NextStage(); }
+        break;
+    }
+}
+
 static void CaptureSaves(void)
 {
     static const char *const names[] = {"eevee_01_gen1.sav", "eevee_02_first_get_along.sav", "eevee_03_first_dont_like.sav", "eevee_04_first_failed_egg.sav", "eevee_05_final_species.sav"};
@@ -1209,6 +1345,7 @@ void EvoTest_Frame(void)
     case ST_EEVEE_STATS: if (sTimer != 0 || FieldIdle()) EeveeStats(); break;
     case ST_EEVEE_CAPTURE: EeveeCapture(); break;
     case ST_CAPTURE_SAVES: if (FieldIdle()) CaptureSaves(); break;
+    case ST_HYBRID: if (sSub != 0 || sTimer != 0 || FieldIdle()) Hybrid(); break;
     case ST_DONE:
         LogNum(gEvoTest.checks); LogStr(" checks, "); LogNum(gEvoTest.fails); LogStr(" failed\n");
         gEvoTest.finished = gEvoTest.fails ? 2 : 1;

@@ -1,5 +1,6 @@
 #include "global.h"
 #include "genetics.h"
+#include "hybrid_sprite.h"
 #include "genetics_palette.h"
 #include "malloc.h"
 #include "apprentice.h"
@@ -5280,7 +5281,10 @@ const u16 *GetMonFrontSpritePal(struct Pokemon *mon)
     bool32 isShiny = GetMonData(mon, MON_DATA_IS_SHINY);
     u32 personality = GetMonData(mon, MON_DATA_PERSONALITY);
     bool32 isEgg = GetMonData(mon, MON_DATA_IS_EGG);
-    return GeneticMonPalette(&mon->box, GetMonSpritePalFromSpeciesIsEgg(species, isShiny, IsPersonalityFemale(species, personality), isEgg));
+    const u16 *base = GetMonSpritePalFromSpeciesIsEgg(species, isShiny, IsPersonalityFemale(species, personality), isEgg);
+    if (!isEgg)
+        base = HybridBoxMonPalette(&mon->box, species, isShiny, base);
+    return GeneticMonPalette(&mon->box, base);
 }
 
 const u16 *GetMonSpritePalFromSpeciesAndPersonality(enum Species species, bool32 isShiny, u32 personality)
@@ -5293,7 +5297,9 @@ const u16 *GetMonSpritePalFromSpeciesAndPersonality(enum Species species, bool32
 const u16 *GetMonSpritePalFromSpeciesAndPersonalityIsEgg(enum Species species, bool32 isShiny, u32 personality, bool32 isEgg)
 {
     const u16 *base = GetMonSpritePalFromSpeciesIsEgg(species, isShiny, IsPersonalityFemale(species, personality), isEgg);
-    return isEgg ? base : GeneticPaletteForPersonality(personality, base);
+    if (isEgg)
+        return base;
+    return GeneticPaletteForPersonality(personality, HybridPalette(species, personality, isShiny, base));
 }
 
 const u16 *GetMonSpritePalFromSpecies(enum Species species, bool32 isShiny, bool32 isFemale)
