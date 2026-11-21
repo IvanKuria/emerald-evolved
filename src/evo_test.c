@@ -1330,6 +1330,8 @@ static void XbHybrid(struct Pokemon *mon, u16 body, u8 level, bool8 female, u16 
     struct Genome g = {0};
     struct Lineage l = {{donor0, donor1}, fertile};
     MakeMon(mon, body, level, female, &g, FALSE);
+    SetMonData(mon, MON_DATA_OT_NAME, gSaveBlock2Ptr->playerName);   // the player's own: no badge-less disobedience
+    SetMonData(mon, MON_DATA_OT_GENDER, &gSaveBlock2Ptr->playerGender);
     SetBoxMonLineage(&mon->box, &l);
     GiveMonInitialMoveset(mon);
     CalculateMonStats(mon);
@@ -1779,6 +1781,7 @@ static void Crossbreed(void)
             ZeroEnemyPartyMons();
             gEnemyParty[0] = sXbCharPika;
             SetMoves(&gEnemyParty[0], MOVE_GROWL);
+            FlagSet(FLAG_BADGE08_GET);   // B_OBEDIENCE_MECHANICS GEN_8+: a badge-less L20 would nap instead of using Ember
             BattleSetup_StartWildBattle();
         }
         if (sTimer < 60 * 12 && (sTimer % 90) == 0) Press(B_BUTTON);
@@ -1809,8 +1812,8 @@ static void Crossbreed(void)
             if (k == 10) Press(DPAD_DOWN);
             if (k == 20) Press(A_BUTTON);
             if (k > 30 && (k % 50) == 0) Press(B_BUTTON);
-            if (FieldIdle() && t > 900) NextStage();
-            if (t > 810 + 240 * 20) { Check(FALSE, "could not run from the hybrid battle"); NextStage(); }
+            if (FieldIdle() && t > 900) { FlagClear(FLAG_BADGE08_GET); NextStage(); }
+            if (t > 810 + 240 * 20) { Check(FALSE, "could not run from the hybrid battle"); FlagClear(FLAG_BADGE08_GET); NextStage(); }
         }
         break;
     }

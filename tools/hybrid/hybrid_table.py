@@ -17,6 +17,9 @@ RAMP_MAPS = {
     ('charmander', 'bulbasaur'): {6: 2, 7: 3, 8: 4, 9: 5},
     ('charmander', 'pikachu'): {6: 2, 7: 3, 8: 4, 9: 6},
     ('pikachu', 'charmander'): {2: 6, 3: 7, 4: 8, 5: 9, 6: 9},
+    # xg-core (NOT owner-picked): the Route 117 wild hybrid. Illumise's purple -> Volbeat's red, its pale-blue body ->
+    # Volbeat's grey-blue. The auto ramp alone maps the whole body to one grey and the hybrid looks like plain Illumise.
+    ('illumise', 'volbeat'): {8: 15, 5: 13, 6: 9, 11: 10, 12: 10, 10: 12, 9: 11},
 }
 
 # Body ramps (light -> dark) for pairs with no owner map: body ramp role i takes colour ramp role min(i, len - 1),

@@ -48,6 +48,7 @@ static const struct HybridRampMap sHybridRampMaps[] =
     {SPECIES_CHARMANDER, SPECIES_BULBASAUR, 4, {6, 7, 8, 9}, {2, 3, 4, 5}},
     {SPECIES_CHARMANDER, SPECIES_PIKACHU, 4, {6, 7, 8, 9}, {2, 3, 4, 6}},
     {SPECIES_PIKACHU, SPECIES_CHARMANDER, 5, {2, 3, 4, 5, 6}, {6, 7, 8, 9, 9}},
+    {SPECIES_ILLUMISE, SPECIES_VOLBEAT, 7, {5, 6, 8, 9, 10, 11, 12}, {13, 9, 15, 11, 12, 10, 10}},
 };
 
 static const u16 sHybridLayerColours0[] = {0x1AAE, 0x158A, 0x3BF7, 0x2354, 0x0842};
